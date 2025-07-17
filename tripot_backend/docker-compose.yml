@@ -1,0 +1,48 @@
+services:
+  # 1. 백엔드 서비스 (두뇌 역할)
+  backend:
+    build: ./backend
+    container_name: tripot_backend_new
+    env_file:
+      - .env
+    ports:
+      - "8889:8000" # 직접 연결 테스트용 포트
+    volumes:
+      - ./backend:/backend
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    # Uvicorn에게 프록시 헤더를 신뢰하라고 지시하여 웹소켓 연결 문제를 해결합니다.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--ws-ping-interval", "20", "--ws-ping-timeout", "20"]
+
+  # 2. Nginx 서비스 (문지기 역할)
+  nginx:
+    build: ./nginx
+    container_name: tripot_nginx_new
+    ports:
+      - "8080:80" # 외부 접속용 포트
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # 3. 데이터베이스 서비스 (DB 역할)
+  db:
+    image: mysql:8.0
+    container_name: tripot_db_new
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    env_file:
+      - .env
+    ports:
+      - "3307:3306" # DBeaver 등 외부 DB 도구 접속용 포트
+    volumes:
+      - mysql_data_new:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  mysql_data_new:

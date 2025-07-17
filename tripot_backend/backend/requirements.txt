@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-dotenv
+pinecone
+uuid
+sqlalchemy
+pymysql
+cryptography
+mysql-connector-python
+pydantic-settings 
+python-multipart
+
+# 호환성이 검증된 안정 버전
+openai==1.17.0
+httpx==0.27.0
+httpcore==1.0.5
+websockets

@@ -1,0 +1,186 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.db import models
+from app.db.database import engine
+from app.api.v1.api import api_router
+
+# 서버 시작 시 models.py에 정의된 모든 테이블을 DB에 생성합니다.
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Tripot API",
+    description="트라이팟 서비스의 통합 API 서버입니다.",
+    version="1.0.0"
+)
+
+# 신뢰할 수 있는 출처 목록을 명확하게 정의하여 CORS 문제를 해결합니다.
+origins = [
+    # 실제 앱/웹 주소 (예시)
+    # "http://tripot.com",
+    # "https://tripot.com",
+
+    # 로컬 개발 및 테스트를 위한 주소
+    "http://localhost",
+    "http://localhost:8080", # Nginx
+    "http://localhost:8889", # Backend Direct
+    "null", # 로컬 HTML 파일 테스트용
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# '/api/v1' 경로로 들어오는 모든 요청을 api_router에게 위임합니다.
+app.include_router(api_router, prefix="/api/v1")
+
+# 서버 상태 확인용 루트 경로
+@app.get("/", tags=["Default"])
+def read_root():
+    return {"message": "Welcome to Tripot Integrated Backend!"}
+
+
+
+
+
+
+
+
+
+
+    import openai
+import asyncio
+import json
+import os
+import base64
+import tempfile
+
+from app.core.config import settings
+# 순환 참조(Circular Dependency)를 피하기 위해, 이 파일에서는 다른 서비스 파일을 직접 import하지 않습니다.
+
+# OpenAI 클라이언트 초기화
+client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+
+# --- 1. Core AI Utilities (기존과 유사) ---
+
+async def get_embedding(text: str) -> list[float]:
+    """텍스트를 받아 임베딩 벡터를 반환합니다."""
+    response = await asyncio.to_thread(
+        client.embeddings.create, input=text, model="text-embedding-3-small"
+    )
+    return response.data[0].embedding
+
+async def get_transcript_from_audio(audio_file_path: str) -> str:
+    """오디오 파일 경로를 받아 STT(Speech-to-Text) 결과를 반환합니다."""
+    with open(audio_file_path, "rb") as audio_file:
+        transcript_response = await asyncio.to_thread(
+            client.audio.transcriptions.create, model="whisper-1", file=audio_file, language="ko"
+        )
+    return transcript_response.text
+
+async def get_ai_chat_completion(prompt: str, model: str = "gpt-4o", max_tokens: int = 150, temperature: float = 0.7) -> str:
+    """주어진 프롬프트에 대한 AI 챗봇의 응답을 반환합니다."""
+    messages = [
+        {"role": "system", "content": "당신은 주어진 규칙과 페르소나를 완벽하게 따르는 AI 어시스턴트입니다."},
+        {"role": "user", "content": prompt}
+    ]
+    chat_response = await asyncio.to_thread(
+        client.chat.completions.create,
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature
+    )
+    return chat_response.choices[0].message.content
+
+# --- 2. Main Real-time Conversation Logic (핵심 로직 이동) ---
+
+def _load_talk_prompt():
+    """prompts/talk_prompt.json 파일을 안전하게 읽어오는 헬퍼 함수"""
+    prompt_file_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts', 'talk_prompt.json')
+    try:
+        with open(prompt_file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)['main_chat_prompt']
+    except Exception as e:
+        print(f"❌ talk_prompt.json 파일을 불러오는 데 실패했습니다: {e}")
+        return None
+
+PROMPTS_CONFIG = _load_talk_prompt()
+
+async def process_user_audio(user_id: str, audio_base64: str):
+    """
+    사용자의 음성 데이터를 받아 처리하고, AI의 최종 응답을 생성하는 전체 과정을 담당합니다.
+    (기존 main.py의 process_audio_and_get_response 로직을 이곳으로 이동)
+    """
+    # 순환 참조 방지를 위해 필요할 때만 vector_db_service를 가져옵니다.
+    from . import vector_db
+
+    audio_data = base64.b64decode(audio_base64)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_data)
+        temp_audio_path = temp_audio.name
+    
+    try:
+        user_message = await get_transcript_from_audio(temp_audio_path)
+        if not user_message.strip() or "시청해주셔서 감사합니다" in user_message:
+            return None, "음, 잘 알아듣지 못했어요. 혹시 다시 한번 말씀해주시겠어요?"
+        
+        relevant_memories = await vector_db.search_memories(user_id, user_message)
+        
+        if not PROMPTS_CONFIG:
+            return user_message, "대화 프롬프트 설정 파일을 불러올 수 없어 기본 응답을 드립니다."
+
+        system_message = "\n".join(PROMPTS_CONFIG['system_message_base'])
+        examples_text = "\n\n".join([f"상황: {ex['situation']}\n사용자 입력: {ex['user_input']}\nAI 응답: {ex['ai_response']}" for ex in PROMPTS_CONFIG['examples']])
+        
+        final_prompt = f"""# 페르소나\n{system_message}\n# 핵심 대화 규칙\n{"\n".join(PROMPTS_CONFIG['core_conversation_rules'])}\n# 응답 가이드라인\n{"\n".join(PROMPTS_CONFIG['guidelines_and_reactions'])}\n# 절대 금지사항\n{"\n".join(PROMPTS_CONFIG['strict_prohibitions'])}\n# 성공적인 대화 예시\n{examples_text}\n---\n이제 실제 대화를 시작합니다.\n--- 과거 대화 핵심 기억 ---\n{relevant_memories if relevant_memories else "이전 대화 기록이 없습니다."}\n--------------------\n현재 사용자 메시지: "{user_message}"\nAI 답변:"""
+        
+        ai_response = await get_ai_chat_completion(final_prompt)
+        
+        return user_message, ai_response
+    finally:
+        os.unlink(temp_audio_path)
+
+# --- 3. Report Generation Logic (for background scripts) ---
+
+def _get_report_prompt():
+    """prompts/report_prompt.json 파일을 읽어오는 헬퍼 함수"""
+    prompt_file_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts', 'report_prompt.json')
+    try:
+        with open(prompt_file_path, 'r', encoding='utf-8') as f:
+            return json.load(f).get("report_analysis_prompt")
+    except Exception as e:
+        print(f"❌ report_prompt.json 파일을 불러오는 데 실패했습니다: {e}")
+        return None
+
+def generate_summary_report(conversation_text: str) -> dict | None:
+    """대화 내용을 분석하여 JSON 형식의 리포트를 생성합니다 (동기 방식)."""
+    
+    report_prompt_template = _get_report_prompt()
+    if not conversation_text or not report_prompt_template:
+        return None
+
+    persona = report_prompt_template.get('persona', '당신은 전문 대화 분석 AI입니다.')
+    instructions = "\n".join(report_prompt_template.get('instructions', []))
+    output_format_example = json.dumps(report_prompt_template.get('OUTPUT_FORMAT', {}), ensure_ascii=False, indent=2)
+
+    system_prompt = f"{persona}\n\n### 지시사항\n{instructions}\n\n### 출력 형식\n모든 결과는 아래와 같은 JSON 형식으로만 출력해야 합니다. 추가 설명이나 인사말 등 JSON 외의 텍스트는 절대 포함하지 마세요.\n{output_format_example}"
+    user_prompt = f"### 분석할 대화 전문\n---\n{conversation_text}\n---"
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o", 
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        return json.loads(completion.choices[0].message.content)
+    except Exception as e:
+        print(f"AI 리포트 생성 중 오류 발생: {e}")
+        return None
