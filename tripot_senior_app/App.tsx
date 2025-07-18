@@ -1,47 +1,135 @@
 import React, { useState, useEffect } from 'react';
-import { BackHandler, SafeAreaView, StatusBar, StyleSheet, Text } from 'react-native';
+import { SafeAreaView, StyleSheet, Alert, BackHandler, ActivityIndicator, View, Text, StatusBar, LogBox } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import HomeScreen from './src/screens/HomeScreen';
-import SpeakScreen from './src/screens/SpeakScreen';
-import CalendarScreen from './src/screens/CalendarScreen';
-import HealthScreen from './src/screens/HealthScreen';
-import PlayScreen from './src/screens/PlayScreen';
-import RadioScreen from './src/screens/RadioScreen';
 
+import HomeScreen from './src/screens/HomeScreen';
+import CameraScreen from './src/screens/CameraScreen';
+import PreviewScreen from './src/screens/PreviewScreen';
+import FamilyFeedScreen from './src/screens/FamilyFeedScreen';
+import PhotoDetailScreen from './src/screens/PhotoDetailScreen';
+import SpeakScreen from './src/screens/SpeakScreen';
+import RadioScreen from './src/screens/RadioScreen';
+import PlayScreen from './src/screens/PlayScreen';
+import HealthScreen from './src/screens/HealthScreen';
+import CalendarScreen from './src/screens/CalendarScreen';
+
+LogBox.ignoreLogs(['ViewPropTypes will be removed']);
+
+const API_BASE_URL = 'http://192.168.101.67:8080';
+const USER_ID = 'user_1752303760586_8wi64r';
+
+interface Comment { id: number; author_name: string; comment_text: string; created_at: string; }
+interface Photo { id: number; uploaded_by: string; created_at: string; comments: Comment[]; }
 interface MarkedDates { [key: string]: { marked?: boolean; dotColor?: string; note?: string; }; }
 
-// --- 백엔드 연결 설정 (새로 추가) ---
-// 안드로이드 에뮬레이터에서 PC의 localhost에 접속하기 위한 주소
-const WEBSOCKET_URL = 'ws://10.0.2.2:8080/api/v1/senior/ws/senior_123';
-
-const App = () => {
+export default function App() {
   const [currentScreen, setCurrentScreen] = useState('Home');
+  const [isLoading, setIsLoading] = useState(false);
+  const [familyFeedData, setFamilyFeedData] = useState({});
+  const [currentImageUri, setCurrentImageUri] = useState<string>('');
+  const [currentPhotoDetail, setCurrentPhotoDetail] = useState<any>(null);
   const [markedDates, setMarkedDates] = useState<MarkedDates>({});
-  
-  // --- 백엔드 연결 상태 관리 (새로 추가) ---
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState('서버 연결 중...');
 
-  // --- 웹소켓 연결 로직 (새로 추가) ---
   useEffect(() => {
-    console.log('웹소켓 연결을 시도합니다...');
-    const socket = new WebSocket(WEBSOCKET_URL);
-
-    socket.onopen = () => setConnectionStatus('✅ 연결 성공');
-    socket.onclose = () => setConnectionStatus('🔌 연결 끊어짐');
-    socket.onerror = (error) => setConnectionStatus(`❌ 연결 오류: ${error.message}`);
-    
-    // SpeakScreen으로 전달할 수 있도록 WebSocket 인스턴스를 상태에 저장합니다.
-    setWs(socket);
-
-    // 앱이 종료될 때 소켓 연결을 정리합니다.
-    return () => {
-      socket.close();
+    const loadCalendarData = async () => {
+      try {
+        const savedData = await AsyncStorage.getItem('calendarData');
+        if (savedData !== null) { setMarkedDates(JSON.parse(savedData)); }
+      } catch (e) { console.error('Failed to load calendar data.', e); }
     };
-  }, []); // 앱이 처음 실행될 때 단 한 번만 실행됩니다.
+    loadCalendarData();
+  }, []);
 
+  const saveCalendarData = async (data: MarkedDates) => {
+    try {
+      const stringifiedData = JSON.stringify(data);
+      await AsyncStorage.setItem('calendarData', stringifiedData);
+    } catch (e) { console.error('Failed to save calendar data.', e); }
+  };
 
-  // --- 안드로이드 뒤로 가기 버튼 처리 (기존과 동일) ---
+  const handleUpdateEvent = (date: string, note: string) => {
+    const newMarkedDates = { ...markedDates };
+    if (!note.trim()) { delete newMarkedDates[date]; } 
+    else { newMarkedDates[date] = { marked: true, dotColor: '#50cebb', note: note }; }
+    setMarkedDates(newMarkedDates);
+    saveCalendarData(newMarkedDates);
+  };
+
+  const fetchFamilyPhotos = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/family/family-yard/photos?user_id_str=${USER_ID}`);
+      const result = await response.json();
+      if (response.ok && result.status === 'success') {
+        setFamilyFeedData(result.photos_by_date || {});
+      } else {
+        Alert.alert('오류', '사진을 불러오는데 실패했습니다.');
+        setFamilyFeedData({});
+      }
+    } catch (error) {
+      Alert.alert('네트워크 오류', '서버에 연결할 수 없습니다. Wi-Fi와 서버 상태를 확인해주세요.');
+      setFamilyFeedData({});
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const uploadPhoto = async (imageUri: string) => {
+    setIsLoading(true);
+    const url = `${API_BASE_URL}/api/v1/family/family-yard/upload`;
+    
+    const formData = new FormData();
+    formData.append('file', { uri: imageUri, type: 'image/jpeg', name: `photo_${Date.now()}.jpg` });
+    formData.append('user_id_str', USER_ID);
+    formData.append('uploaded_by', 'senior');
+
+    try {
+      const response = await fetch(url, { method: 'POST', body: formData, headers: { 'Content-Type': 'multipart/form-data' } });
+      const result = await response.json();
+      if (response.ok) {
+        Alert.alert('성공', '사진을 가족마당에 등록했습니다!');
+        await fetchFamilyPhotos();
+        setCurrentScreen('FamilyFeed');
+      } else {
+        Alert.alert('오류', `사진 등록에 실패했습니다: ${result.detail || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      Alert.alert('네트워크 오류', '서버에 연결할 수 없습니다. Wi-Fi와 서버 상태를 확인해주세요.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const navigate = (screen: string) => {
+    if (screen === 'FamilyFeed') {
+      fetchFamilyPhotos();
+    }
+    setCurrentScreen(screen);
+  };
+
+  const navigateToPreview = (uri: string) => {
+    setCurrentImageUri(uri);
+    setCurrentScreen('Preview');
+  };
+
+  const openPhotoDetail = (photo: Photo) => {
+    if (!photo || !photo.id) {
+      Alert.alert("오류", "사진 정보를 여는데 실패했습니다.");
+      return;
+    }
+    const detailData = {
+      uri: `${API_BASE_URL}/api/v1/family/family-yard/photo/${photo.id}`,
+      uploader: photo.uploaded_by,
+      date: photo.created_at,
+      comments: photo.comments,
+      photoId: photo.id,
+      userId: USER_ID,
+      apiBaseUrl: API_BASE_URL,
+    };
+    setCurrentPhotoDetail(detailData);
+    setCurrentScreen('PhotoDetail');
+  };
+
   useEffect(() => {
     const handleBackButton = () => {
       if (currentScreen !== 'Home') {
@@ -54,57 +142,40 @@ const App = () => {
     return () => backHandler.remove();
   }, [currentScreen]);
 
-
-  // --- AsyncStorage 데이터 로딩 (기존과 동일, 하지만 수정 제안!) ---
-  // 현재는 로컬 저장소(AsyncStorage)를 사용하지만,
-  // 추후에는 백엔드 API를 호출하여 가족과 공유되는 데이터를 불러오는 방식으로 변경해야 합니다.
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const savedData = await AsyncStorage.getItem('calendarData');
-        if (savedData !== null) { setMarkedDates(JSON.parse(savedData)); }
-      } catch (e) { console.error('Failed to load data.', e); }
-    };
-    loadData();
-  }, []);
-
-  const saveData = async (data: MarkedDates) => {
-    try {
-      const stringifiedData = JSON.stringify(data);
-      await AsyncStorage.setItem('calendarData', stringifiedData);
-    } catch (e) { console.error('Failed to save data.', e); }
-  };
-
-  const handleUpdateEvent = (date: string, note: string) => {
-    const newMarkedDates = { ...markedDates };
-    if (!note.trim()) { delete newMarkedDates[date]; }
-    else { newMarkedDates[date] = { marked: true, dotColor: '#50cebb', note: note }; }
-    setMarkedDates(newMarkedDates);
-    saveData(newMarkedDates);
-  };
-
-  const navigate = (screenName: string) => { if (screenName) { setCurrentScreen(screenName); } };
-  const goBackToHome = () => { setCurrentScreen('Home'); };
-
-  // --- 화면 렌더링 로직 (수정) ---
-  // 각 스크린에 필요한 props를 전달합니다.
   const renderScreen = () => {
+    if (isLoading && currentScreen !== 'FamilyFeed') {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>처리 중입니다...</Text>
+        </View>
+      );
+    }
+
     switch (currentScreen) {
+      case 'Home':
+        return <HomeScreen navigation={{ navigate }} />;
+      case 'Camera':
+        return <CameraScreen navigation={{ navigateToPreview, goBack: () => setCurrentScreen('Home') }} />;
+      case 'Preview':
+        return <PreviewScreen route={{ params: { imageUri: currentImageUri } }} navigation={{ goBack: () => setCurrentScreen('Camera'), register: uploadPhoto }} />;
+      case 'FamilyFeed':
+        return <FamilyFeedScreen apiBaseUrl={API_BASE_URL} feedData={familyFeedData} isLoading={isLoading} navigation={{ openDetail: openPhotoDetail, goBack: () => setCurrentScreen('Home') }} onRefresh={fetchFamilyPhotos} />;
+      case 'PhotoDetail':
+        if (!currentPhotoDetail) return null;
+        return <PhotoDetailScreen route={{ params: currentPhotoDetail }} navigation={{ goBack: () => setCurrentScreen('FamilyFeed') }} />;
       case 'Speak':
-        // SpeakScreen에 웹소켓 인스턴스를 전달합니다.
-        return <SpeakScreen navigation={{ goBack: goBackToHome }} webSocket={ws} />;
-      case 'Calendar':
-        return ( <CalendarScreen navigation={{ goBack: goBackToHome }} savedDates={markedDates} onUpdateEvent={handleUpdateEvent} /> );
-      case 'Health':
-        // 추후 HealthScreen에도 백엔드에서 건강 데이터를 받아오는 로직이 필요합니다.
-        return <HealthScreen navigation={{ goBack: goBackToHome }} />;
-      case 'Play':
-        return <PlayScreen navigation={{ goBack: goBackToHome }} />;
+        return <SpeakScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
       case 'Radio':
-        return <RadioScreen navigation={{ goBack: goBackToHome }} />;
+        return <RadioScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+      case 'Play':
+        return <PlayScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+      case 'Health':
+        return <HealthScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+      case 'Calendar':
+        return <CalendarScreen navigation={{ goBack: () => setCurrentScreen('Home') }} savedDates={markedDates} onUpdateEvent={handleUpdateEvent} />;
       default:
-        // HomeScreen에 연결 상태를 표시할 수 있도록 props를 전달합니다.
-        return <HomeScreen navigation={{ navigate: navigate }} connectionStatus={connectionStatus} />;
+        return <HomeScreen navigation={{ navigate }} />;
     }
   };
 
@@ -114,12 +185,10 @@ const App = () => {
       {renderScreen()}
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 10, fontSize: 16 }
 });
-
-export default App;

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import openai
 
 # .env 파일 로드
-load_dotenv('../.env')
+load_dotenv('../../.env')
 
 # MySQL 연결
 def get_mysql_connection():

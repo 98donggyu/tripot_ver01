@@ -19,6 +19,7 @@
     "react-native-audio-record": "^0.2.2",
     "react-native-calendars": "^1.1313.0",
     "react-native-fs": "^2.20.0",
+    "react-native-image-picker": "^8.2.1",
     "react-native-svg": "^15.3.0",
     "react-native-tts": "^4.1.1",
     "react-native-video": "^6.16.1"
