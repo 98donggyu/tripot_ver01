@@ -38,3 +38,46 @@ class CommentService:
         comments = db.query(models.PhotoComment).filter(models.PhotoComment.photo_id == photo_id).order_by(models.PhotoComment.created_at.asc()).all()
         print(f"✅ photo_id={photo_id}의 댓글 {len(comments)}개 조회 완료")
         return comments
+
+    @staticmethod
+    def update_comment(db: Session, comment_id: int, user_id_str: str, new_comment_text: str) -> models.PhotoComment:
+        """
+        댓글을 수정합니다. 작성자만 수정 가능합니다.
+        """
+        # 댓글 존재 여부 확인
+        db_comment = db.query(models.PhotoComment).filter(models.PhotoComment.id == comment_id).first()
+        if not db_comment:
+            raise HTTPException(status_code=404, detail="수정할 댓글을 찾을 수 없습니다.")
+        
+        # 작성자 확인 (user_id로 비교)
+        user = db.query(models.User).filter(models.User.user_id_str == user_id_str).first()
+        if not user or db_comment.user_id != user.id:
+            raise HTTPException(status_code=403, detail="본인이 작성한 댓글만 수정할 수 있습니다.")
+        
+        # 댓글 내용 업데이트
+        db_comment.comment_text = new_comment_text
+        db.commit()
+        db.refresh(db_comment)
+        print(f"✅ 댓글 수정 완료: comment_id={comment_id}")
+        return db_comment
+
+    @staticmethod
+    def delete_comment(db: Session, comment_id: int, user_id_str: str) -> bool:
+        """
+        댓글을 삭제합니다. 작성자만 삭제 가능합니다.
+        """
+        # 댓글 존재 여부 확인
+        db_comment = db.query(models.PhotoComment).filter(models.PhotoComment.id == comment_id).first()
+        if not db_comment:
+            raise HTTPException(status_code=404, detail="삭제할 댓글을 찾을 수 없습니다.")
+        
+        # 작성자 확인
+        user = db.query(models.User).filter(models.User.user_id_str == user_id_str).first()
+        if not user or db_comment.user_id != user.id:
+            raise HTTPException(status_code=403, detail="본인이 작성한 댓글만 삭제할 수 있습니다.")
+        
+        # 댓글 삭제
+        db.delete(db_comment)
+        db.commit()
+        print(f"✅ 댓글 삭제 완료: comment_id={comment_id}")
+        return True

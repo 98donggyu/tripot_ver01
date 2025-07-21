@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-    View, Text, Image, StyleSheet, ScrollView, Dimensions, 
-    TouchableOpacity, SafeAreaView, TextInput, KeyboardAvoidingView, Platform, Alert, FlatList
+    View, Text, Image, StyleSheet, 
+    TouchableOpacity, SafeAreaView, TextInput, KeyboardAvoidingView, 
+    Platform, Alert, FlatList
 } from 'react-native';
 
 interface Comment {
@@ -29,24 +30,24 @@ const PhotoDetailScreen: React.FC<PhotoDetailProps> = ({ route, navigation }) =>
     
     const [aspectRatio, setAspectRatio] = useState(1);
     const [comments, setComments] = useState(initialComments);
-    const [author, setAuthor] = useState(''); // 댓글 작성자 이름 상태
-    const [commentText, setCommentText] = useState(''); // 댓글 내용 상태
+    const [author, setAuthor] = useState('');
+    const [commentText, setCommentText] = useState('');
+    const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+    const [editText, setEditText] = useState('');
 
-    // ✨ 해결 방법 1: 서버로부터 최신 댓글 목록을 가져오는 함수
     const fetchComments = useCallback(async () => {
         try {
-            console.log(`🔍 photoId: ${photoId}의 최신 댓글을 서버에서 가져옵니다.`);
+            console.log(`photoId: ${photoId}의 최신 댓글을 서버에서 가져옵니다.`);
             const response = await fetch(`${apiBaseUrl}/api/v1/family/family-yard/photo/${photoId}/comments`);
             const fetchedComments = await response.json();
             if (response.ok) {
                 setComments(fetchedComments);
-                console.log(`✅ 최신 댓글 ${fetchedComments.length}개 로딩 완료.`);
+                console.log(`최신 댓글 ${fetchedComments.length}개 로딩 완료.`);
             } else {
                 console.error("댓글 로딩 실패:", fetchedComments.detail);
             }
         } catch (error) {
             console.error("댓글 로딩 네트워크 오류:", error);
-            // 초기 댓글이라도 보여주기 위해 Alert은 생략
         }
     }, [apiBaseUrl, photoId]);
 
@@ -54,7 +55,6 @@ const PhotoDetailScreen: React.FC<PhotoDetailProps> = ({ route, navigation }) =>
         if (uri) {
             Image.getSize(uri, (w, h) => setAspectRatio(w / h), () => {});
         }
-        // ✨ 해결 방법 2: 화면이 마운트될 때 최신 댓글 목록을 가져옴
         fetchComments();
     }, [uri, fetchComments]);
 
@@ -77,9 +77,8 @@ const PhotoDetailScreen: React.FC<PhotoDetailProps> = ({ route, navigation }) =>
             const newComment = await response.json();
 
             if (response.ok) {
-                // UI에 즉시 반영 (낙관적 업데이트)
                 setComments(prev => [...prev, newComment]);
-                setCommentText(''); // 댓글 입력창만 비우기
+                setCommentText('');
             } else {
                 Alert.alert('오류', newComment.detail || '댓글 등록에 실패했습니다.');
             }
@@ -87,6 +86,91 @@ const PhotoDetailScreen: React.FC<PhotoDetailProps> = ({ route, navigation }) =>
             console.error("댓글 등록 오류:", error);
             Alert.alert('네트워크 오류', '댓글을 등록할 수 없습니다.');
         }
+    };
+
+    const handleEditComment = async (commentId: number) => {
+        if (!editText.trim()) {
+            Alert.alert('알림', '댓글 내용을 입력해주세요.');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${apiBaseUrl}/api/v1/family/family-yard/comment/${commentId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id_str: userId,
+                    comment_text: editText,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                setComments(prev => 
+                    prev.map(comment => 
+                        comment.id === commentId 
+                            ? { ...comment, comment_text: editText }
+                            : comment
+                    )
+                );
+                setEditingCommentId(null);
+                setEditText('');
+                Alert.alert('성공', '댓글이 수정되었습니다.');
+            } else {
+                Alert.alert('오류', result.detail || '댓글 수정에 실패했습니다.');
+            }
+        } catch (error) {
+            console.error("댓글 수정 오류:", error);
+            Alert.alert('네트워크 오류', '댓글을 수정할 수 없습니다.');
+        }
+    };
+
+    const handleDeleteComment = async (commentId: number) => {
+        Alert.alert(
+            '댓글 삭제',
+            '정말로 이 댓글을 삭제하시겠습니까?',
+            [
+                { text: '취소', style: 'cancel' },
+                {
+                    text: '삭제',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            const response = await fetch(`${apiBaseUrl}/api/v1/family/family-yard/comment/${commentId}`, {
+                                method: 'DELETE',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    user_id_str: userId,
+                                }),
+                            });
+
+                            const result = await response.json();
+
+                            if (response.ok) {
+                                setComments(prev => prev.filter(comment => comment.id !== commentId));
+                                Alert.alert('성공', '댓글이 삭제되었습니다.');
+                            } else {
+                                Alert.alert('오류', result.detail || '댓글 삭제에 실패했습니다.');
+                            }
+                        } catch (error) {
+                            console.error("댓글 삭제 오류:", error);
+                            Alert.alert('네트워크 오류', '댓글을 삭제할 수 없습니다.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const startEditing = (comment: Comment) => {
+        setEditingCommentId(comment.id);
+        setEditText(comment.comment_text);
+    };
+
+    const cancelEditing = () => {
+        setEditingCommentId(null);
+        setEditText('');
     };
 
     if (!uri) {
@@ -128,8 +212,52 @@ const PhotoDetailScreen: React.FC<PhotoDetailProps> = ({ route, navigation }) =>
                     keyExtractor={(item, index) => `${item.id}-${index}`}
                     renderItem={({ item }) => (
                         <View style={styles.commentContainer}>
-                            <Text style={styles.commentAuthor}>{item.author_name}</Text>
-                            <Text style={styles.commentText}>{item.comment_text}</Text>
+                            <View style={styles.commentHeader}>
+                                <Text style={styles.commentAuthor}>{item.author_name}</Text>
+                                <View style={styles.commentActions}>
+                                    <TouchableOpacity 
+                                        onPress={() => startEditing(item)}
+                                        style={styles.actionButton}
+                                    >
+                                        <Text style={styles.actionText}>수정</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        onPress={() => handleDeleteComment(item.id)}
+                                        style={styles.actionButton}
+                                    >
+                                        <Text style={[styles.actionText, styles.deleteText]}>삭제</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                            
+                            {editingCommentId === item.id ? (
+                                <View style={styles.editContainer}>
+                                    <TextInput
+                                        style={styles.editInput}
+                                        value={editText}
+                                        onChangeText={setEditText}
+                                        multiline
+                                        placeholder="댓글을 수정하세요..."
+                                    />
+                                    <View style={styles.editActions}>
+                                        <TouchableOpacity 
+                                            onPress={cancelEditing}
+                                            style={[styles.editButton, styles.cancelButton]}
+                                        >
+                                            <Text style={styles.editButtonText}>취소</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            onPress={() => handleEditComment(item.id)}
+                                            style={[styles.editButton, styles.saveButton, { marginLeft: 8 }]}
+                                        >
+                                            <Text style={[styles.editButtonText, styles.saveText]}>저장</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ) : (
+                                <Text style={styles.commentText}>{item.comment_text}</Text>
+                            )}
+                            
                             <Text style={styles.commentDate}>{new Date(item.created_at).toLocaleString()}</Text>
                         </View>
                     )}
@@ -169,9 +297,64 @@ const styles = StyleSheet.create({
     commentSectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
     commentTitle: { fontSize: 16, fontWeight: 'bold' },
     commentContainer: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-    commentAuthor: { fontWeight: 'bold', marginBottom: 4 },
-    commentText: {},
-    commentDate: { fontSize: 12, color: 'gray', marginTop: 4, textAlign: 'right' },
+    commentHeader: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        marginBottom: 4 
+    },
+    commentActions: { 
+        flexDirection: 'row' 
+    },
+    actionButton: { 
+        paddingHorizontal: 8, 
+        paddingVertical: 4 
+    },
+    actionText: { 
+        fontSize: 12, 
+        color: '#007AFF' 
+    },
+    deleteText: { 
+        color: '#FF3B30' 
+    },
+    editContainer: { 
+        marginTop: 8 
+    },
+    editInput: { 
+        backgroundColor: '#f9f9f9', 
+        borderRadius: 8, 
+        padding: 12, 
+        fontSize: 14, 
+        borderWidth: 1, 
+        borderColor: '#ddd',
+        minHeight: 60
+    },
+    editActions: { 
+        flexDirection: 'row', 
+        justifyContent: 'flex-end', 
+        marginTop: 8
+    },
+    editButton: { 
+        paddingHorizontal: 16, 
+        paddingVertical: 8, 
+        borderRadius: 6 
+    },
+    cancelButton: { 
+        backgroundColor: '#f0f0f0' 
+    },
+    saveButton: { 
+        backgroundColor: '#007AFF' 
+    },
+    editButtonText: { 
+        fontSize: 14, 
+        fontWeight: '600' 
+    },
+    saveText: { 
+        color: 'white' 
+    },
+    commentAuthor: { fontWeight: 'bold' },
+    commentText: { marginTop: 4 },
+    commentDate: { fontSize: 12, color: 'gray', marginTop: 8, textAlign: 'right' },
     inputContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: '#f9f9f9', borderTopWidth: 1, borderTopColor: '#ddd' },
     input: { backgroundColor: 'white', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, borderWidth: 1, borderColor: '#ccc' },
     postButton: { backgroundColor: '#007AFF', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
