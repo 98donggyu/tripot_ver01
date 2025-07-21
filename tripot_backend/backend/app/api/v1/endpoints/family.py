@@ -3,25 +3,39 @@ from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import List # ✨ 추가
+from datetime import datetime # ✨ 추가
 
 from app.db.database import get_db
 from app.services import report_service
 from app.services.photo_service import PhotoService
-from app.db.models import FamilyPhoto, User  # 🔧 PhotoComment 제거
+from app.services.comment_service import CommentService # ✨ 추가
+from app.db.models import FamilyPhoto, User, PhotoComment # ✨ PhotoComment 임포트
 
 router = APIRouter()
 
-# 🔧 CommentCreate 클래스 임시 주석
-# class CommentCreate(BaseModel):
-#     user_id_str: str
-#     author_name: str
-#     comment_text: str
+# ✨ 수정/추가된 부분: Pydantic 스키마 정의 (요청/응답용)
+class CommentCreate(BaseModel):
+    user_id_str: str
+    author_name: str
+    comment_text: str
 
+class CommentResponse(BaseModel):
+    id: int
+    author_name: str
+    comment_text: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+# ... 기존 /reports/{senior_user_id} 엔드포인트 ...
 @router.get("/reports/{senior_user_id}")
 def get_senior_report_api(senior_user_id: str, db: Session = Depends(get_db)):
     report_data = report_service.get_report_by_user_id(db, senior_user_id)
     return report_data
 
+# ... 기존 /family-yard/upload 엔드포인트 ...
 @router.post("/family-yard/upload")
 async def upload_photo(
     file: UploadFile = File(...),
@@ -66,6 +80,8 @@ async def upload_photo(
         print(f"❌ 업로드 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"업로드 실패: {str(e)}")
 
+
+# ... 기존 /family-yard/photos 엔드포인트 ...
 @router.get("/family-yard/photos")
 def get_family_photos(
     user_id_str: str,
@@ -94,15 +110,52 @@ def get_family_photos(
         print(f"❌ 사진 조회 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"조회 실패: {str(e)}")
 
-# 🔧 댓글 관련 엔드포인트 임시 주석
-# @router.post("/family-yard/photo/{photo_id}/comment")
-# def create_comment_for_photo(
-#     photo_id: int,
-#     comment_data: CommentCreate,
-#     db: Session = Depends(get_db)
-# ):
-#     ...
+# ✨ 수정/추가된 부분: 댓글 생성 엔드포인트
+@router.post("/family-yard/photo/{photo_id}/comment", response_model=CommentResponse)
+def create_comment_for_photo(
+    photo_id: int,
+    comment_data: CommentCreate,
+    db: Session = Depends(get_db)
+):
+    try:
+        print(f"💬 댓글 생성 요청: photo_id={photo_id}, user={comment_data.user_id_str}")
+        # user_id_str을 사용하여 사용자 확인
+        user = db.query(User).filter(User.user_id_str == comment_data.user_id_str).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="댓글 작성자를 찾을 수 없습니다.")
 
+        comment = CommentService.create_comment(
+            db=db,
+            photo_id=photo_id,
+            user_id=user.id,
+            author_name=comment_data.author_name,
+            comment_text=comment_data.comment_text
+        )
+        return comment
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"❌ 댓글 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"댓글 생성 실패: {str(e)}")
+
+# ✨ 수정/추가된 부분: 댓글 조회 엔드포인트
+@router.get("/family-yard/photo/{photo_id}/comments", response_model=List[CommentResponse])
+def get_comments_for_photo(
+    photo_id: int,
+    db: Session = Depends(get_db)
+):
+    try:
+        print(f"🔍 댓글 목록 조회 요청: photo_id={photo_id}")
+        comments = CommentService.get_comments_by_photo_id(db, photo_id)
+        return comments
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"❌ 댓글 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"댓글 조회 실패: {str(e)}")
+
+
+# ... 기존 /family-yard/photo/{photo_id} 엔드포인트 ...
 @router.get("/family-yard/photo/{photo_id}")
 def get_photo_file(photo_id: int, db: Session = Depends(get_db)):
     try:
@@ -118,3 +171,4 @@ def get_photo_file(photo_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"❌ 사진 파일 조회 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"사진 파일 조회 실패: {str(e)}")
+
