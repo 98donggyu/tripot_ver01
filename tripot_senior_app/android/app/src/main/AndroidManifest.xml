@@ -1,14 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- 카메라 권한 추가 -->
+
+    <!-- 카메라 권한 -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- 오디오 녹음 권한 (이미 있으시니 중복 확인) -->
+    
+    <!-- 오디오 권한 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
-    <!-- 카메라 하드웨어 선언 (optional) -->
+    <!-- 알림 권한 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- 🔥 추가된 배터리 최적화 및 스케줄 알림 권한 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 카메라 하드웨어 선언 -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -18,18 +33,86 @@
       android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
-      android:usesCleartextTraffic="true">
+      android:usesCleartextTraffic="true"
+      android:requestLegacyExternalStorage="true">
+      
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
         android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
-        android:exported="true">
+        android:exported="true"
+        android:screenOrientation="portrait">
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- 🔥 푸시 알림 서비스들 (Android 12+ 호환) -->
+      <service
+          android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationListenerService"
+          android:exported="false" >
+          <intent-filter>
+              <action android:name="com.google.firebase.MESSAGING_EVENT" />
+          </intent-filter>
+      </service>
+
+      <!-- 부팅 시 알림 복원 -->
+      <receiver 
+          android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationBootEventReceiver"
+          android:exported="true"
+          android:enabled="true">
+          <intent-filter android:priority="1000">
+              <action android:name="android.intent.action.BOOT_COMPLETED" />
+              <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+              <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+              <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+              <action android:name="android.intent.action.PACKAGE_REPLACED" />
+              <category android:name="android.intent.category.DEFAULT" />
+          </intent-filter>
+      </receiver>
+
+      <!-- 알림 발송 및 액션 처리 -->
+      <receiver 
+          android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationPublisher"
+          android:exported="false" />
+      <receiver 
+            android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationActionReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.tripot_senior_app.ACTION_0" />
+                <action android:name="com.tripot_senior_app.ACTION_1" />
+                <action android:name="com.tripot_senior_app.ACTION_2" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+      </receiver>
+
+      <!-- 🔥 액션 처리를 위한 추가 설정 -->
+      <activity
+          android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationActions"
+          android:exported="false"
+          android:launchMode="singleTop">
+      </activity>
+
+      <!-- 🔥 알림 설정 메타데이터 (향상된 설정) -->
+      <meta-data android:name="com.dieam.reactnativepushnotification.notification_channel_name"
+                 android:value="정시 대화 알림"/>
+      <meta-data android:name="com.dieam.reactnativepushnotification.notification_channel_description"
+                 android:value="설정한 시간에 울리는 대화 알림"/>
+      <meta-data android:name="com.dieam.reactnativepushnotification.notification_foreground"
+                 android:value="true"/>
+      <meta-data android:name="com.dieam.reactnativepushnotification.notification_color"
+                 android:resource="@android:color/white" />
+      
+      <!-- 🔥 정확한 알람을 위한 추가 설정 -->
+      <meta-data android:name="com.dieam.reactnativepushnotification.default_notification_channel_id"
+                 android:value="default-channel-id"/>
+      
+      <!-- 🔥 배터리 최적화 무시 요청 -->
+      <meta-data android:name="android.max_aspect" android:value="2.1" />
+      
     </application>
 </manifest>

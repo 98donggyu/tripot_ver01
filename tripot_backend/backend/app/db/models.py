@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Time
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -12,6 +12,7 @@ class User(Base):
     # ✨ 수정/추가된 부분: 관계 설정 수정
     photos = relationship("FamilyPhoto", back_populates="user")
     comments = relationship("PhotoComment", back_populates="user")
+    schedules = relationship("ConversationSchedule", back_populates="user")
 
 class FamilyPhoto(Base):
     __tablename__ = "family_photos"
@@ -40,3 +41,14 @@ class PhotoComment(Base):
     
     photo = relationship("FamilyPhoto", back_populates="comments")
     user = relationship("User", back_populates="comments")
+
+class ConversationSchedule(Base):
+    __tablename__ = "conversation_schedules"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    call_time = Column(Time, nullable=False)  # 예: "09:00:00"
+    is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=datetime.utcnow)
+    
+    user = relationship("User", back_populates="schedules")

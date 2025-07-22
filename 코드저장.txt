@@ -184,3 +184,1129 @@ def generate_summary_report(conversation_text: str) -> dict | None:
     except Exception as e:
         print(f"AI 리포트 생성 중 오류 발생: {e}")
         return None
+
+
+
+---------------------------------------------------------------------------------------
+
+// @ts-nocheck
+import PushNotification, { Importance } from 'react-native-push-notification';
+import { PermissionsAndroid, Alert, Platform, AppState } from 'react-native';
+
+interface NotificationUserInfo {
+  action: string;
+  scheduled_time?: string;
+  user_id?: string;
+}
+
+class RealNotificationManager {
+  private setScreenFunction: ((screen: string) => void) | null = null;
+
+  constructor() {
+    this.initializeNotifications();
+  }
+
+  // setCurrentScreen 함수 설정
+  setScreen(setScreenFunc: (screen: string) => void): void {
+    this.setScreenFunction = setScreenFunc;
+    console.log('🎯 setCurrentScreen 함수 설정됨');
+  }
+
+  // 알림 시스템 초기화
+  private initializeNotifications(): void {
+    PushNotification.configure({
+      // 알림 터치 시 실행 (앱이 꺼져있어도 실행됨!)
+      onNotification: (notification: any) => {
+        console.log('📱 푸시 알림 터치됨:', JSON.stringify(notification, null, 2));
+        console.log('📱 액션:', notification.action);
+        console.log('📱 사용자 정보:', notification.userInfo);
+        console.log('📱 data:', notification.data);
+        
+        // 액션 버튼이 눌린 경우
+        if (notification.action) {
+          console.log('🔥 액션 버튼 클릭됨:', notification.action);
+          if (notification.action === '지금대화') {
+            console.log('🎯 지금 대화하기 - 말하기 화면으로 이동');
+            this.navigateToSpeakScreen();
+            return;
+          } else if (notification.action === '10분후') {
+            console.log('⏰ 10분 후 - 스누즈 알람 설정');
+            this.snoozeAlarm(10);
+            return;
+          } else if (notification.action === '건너뛰기') {
+            console.log('❌ 건너뛰기 - 아무것도 하지 않음');
+            return;
+          }
+        }
+        
+        // 정시 대화 알림인 경우 (알림 자체를 터치한 경우)
+        if (notification.data?.action === 'scheduled_call' || notification.userInfo?.action === 'scheduled_call') {
+          console.log('📞 정시 대화 알림 터치 - 즉시 다이얼로그 표시');
+          // 즉시 다이얼로그 표시 (딜레이 없이)
+          this.showCallDialog(notification.data?.scheduled_time || notification.userInfo?.scheduled_time);
+        }
+        
+        // 알림 처리 완료 표시 (중요!)
+        if (notification.finish) {
+          notification.finish(PushNotification.FetchResult.NoData);
+        }
+      },
+
+      // 액션 버튼 처리
+      onAction: (notification: any) => {
+        console.log('🚀🚀🚀 onAction 콜백 실행됨!');
+        console.log('📱 알림 액션 전체:', JSON.stringify(notification, null, 2));
+        console.log('📱 액션:', notification.action);
+        console.log('📱 사용자 정보:', notification.userInfo);
+        
+        // 알림으로도 알려주기
+        Alert.alert('액션 버튼 클릭됨', `액션: ${notification.action}`);
+        
+        // 액션 버튼 처리 (띄어쓰기 없는 문자열)
+        if (notification.action === '지금대화') {
+          console.log('🎯 지금 대화하기 액션 실행');
+          this.navigateToSpeakScreen();
+        } else if (notification.action === '10분후') {
+          console.log('⏰ 10분 후 액션 실행');
+          this.snoozeAlarm(10);
+        } else if (notification.action === '건너뛰기') {
+          console.log('❌ 건너뛰기 액션 실행');
+          // 아무것도 하지 않음
+        } else if (notification.action === '대화하기') {
+          console.log('🎯 대화하기 액션 실행 (스누즈에서)');
+          this.navigateToSpeakScreen();
+        } else if (notification.action === '다시연기') {
+          console.log('⏰ 다시 연기 액션 실행');
+          this.snoozeAlarm(10);
+        } else {
+          console.log('🤷 알 수 없는 액션:', notification.action);
+        }
+      },
+
+      // 토큰 등록 (FCM용 - 나중에 사용)
+      onRegister: (token: any) => {
+        console.log('📱 푸시 토큰:', token);
+      },
+
+      // 권한
+      permissions: {
+        alert: true,
+        badge: true,
+        sound: true,
+      },
+
+      // 초기 알림 처리
+      popInitialNotification: true,
+      requestPermissions: Platform.OS === 'ios',
+    });
+
+    // 알림 채널 생성 (Android)
+    this.createNotificationChannel();
+  }
+
+  // 알림 채널 생성
+  private createNotificationChannel(): void {
+    PushNotification.createChannel(
+      {
+        channelId: 'default-channel-id',
+        channelName: '기본 알림',
+        channelDescription: '앱의 기본 알림 채널',
+        playSound: true,
+        soundName: 'alarm.mp3', // 커스텀 알람 소리
+        importance: Importance.HIGH,
+        vibrate: true,
+      },
+      (created: boolean) => {
+        console.log(`✅ 기본 알림 채널 생성: ${created}`);
+        
+        // 추가 채널도 생성
+        PushNotification.createChannel(
+          {
+            channelId: 'scheduled-call-high',
+            channelName: '정시 대화 알림',
+            channelDescription: '설정한 시간에 울리는 대화 알림',
+            playSound: true,
+            soundName: 'alarm.mp3', // 커스텀 알람 소리
+            importance: Importance.HIGH,
+            vibrate: true,
+          },
+          (created2: boolean) => {
+            console.log(`✅ 정시 대화 알림 채널 생성: ${created2}`);
+          }
+        );
+      }
+    );
+  }
+
+  // 권한 요청
+  async requestPermissions(): Promise<boolean> {
+    try {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+          {
+            title: '🔔 알림 권한 필요',
+            message: '정시 대화 알림을 받기 위해 알림 권한을 허용해주세요.\n\n앱이 꺼져있어도 알림이 울립니다!',
+            buttonPositive: '허용',
+            buttonNegative: '거부',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      return true;
+    } catch (err) {
+      console.warn('권한 요청 오류:', err);
+      return false;
+    }
+  }
+
+  // 정시 대화 스케줄 설정 (진짜 푸시 알림)
+  scheduleConversationAlarm(times: string[]): void {
+    console.log('🚀 scheduleConversationAlarm 호출됨:', times);
+    
+    // 기존 예약된 알림 모두 취소
+    PushNotification.cancelAllLocalNotifications();
+    console.log('✅ 기존 알림 모두 취소됨');
+
+    times.forEach((time: string, index: number) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      const scheduledDate = this.getNextScheduledTime(hours, minutes);
+      
+      console.log(`⏰ 스케줄 ${index + 1}: ${time} → ${scheduledDate.toString()}`);
+
+      // 진짜 푸시 알림 스케줄링 (앱이 꺼져있어도 작동!)
+      PushNotification.localNotificationSchedule({
+        id: 1000 + index, // 숫자 ID 사용
+        channelId: 'scheduled-call-high',
+        
+        // 알림 내용
+        title: '📞 정시 대화 시간이에요!',
+        message: '말벗과 대화를 시작하시겠어요? 터치해서 앱을 열어보세요.',
+        bigText: '설정하신 정시 대화 시간입니다. 지금 바로 대화를 시작하거나 10분 후로 연기할 수 있습니다.',
+        
+        // 시간 설정
+        date: scheduledDate,
+        repeatType: 'day',
+        
+        // 소리 및 진동 (강력하게!)
+        playSound: true,
+        soundName: 'alarm.mp3', // 커스텀 알람 소리
+        vibrate: true,
+        vibration: 2000,
+        
+        // 높은 우선순위
+        importance: 'high',
+        priority: 'high',
+        
+        // 잠금 화면에서도 표시
+        visibility: 'public',
+        
+        // 앱 아이콘 뱃지
+        number: 1,
+        
+        // 액션 버튼들 (띄어쓰기 없음)
+        actions: ['지금대화', '10분후', '건너뛰기'],
+        
+        // 사용자 데이터
+        userInfo: {
+          action: 'scheduled_call',
+          scheduled_time: time,
+          user_id: 'user_1752303760586_8wi64r'
+        } as NotificationUserInfo,
+
+        // Android 전용 설정
+        autoCancel: true,
+        largeIcon: 'ic_launcher',
+        smallIcon: 'ic_notification',
+        color: '#007AFF',
+        ongoing: false,
+      });
+
+      console.log(`✅ ${time} 진짜 푸시 알림 설정 완료 (ID: ${1000 + index})`);
+    });
+    
+    console.log(`🎯 총 ${times.length}개 진짜 푸시 알림 설정 완료`);
+  }
+
+  // 다음 스케줄 시간 계산
+  private getNextScheduledTime(hours: number, minutes: number): Date {
+    const now = new Date();
+    const scheduledTime = new Date();
+    
+    scheduledTime.setHours(hours, minutes, 0, 0);
+    
+    // 오늘 시간이 지났으면 내일로 설정
+    if (scheduledTime <= now) {
+      scheduledTime.setDate(scheduledTime.getDate() + 1);
+    }
+    
+    return scheduledTime;
+  }
+
+  // 즉시 테스트 (진짜 푸시 알림)
+  testImmediateNotification(): void {
+    console.log('🚀 즉시 푸시 알림 테스트 시작');
+    
+    // 먼저 즉시 알림 시도
+    PushNotification.localNotification({
+      channelId: 'default-channel-id',
+      title: '⚡ 즉시 테스트 알림',
+      message: '즉시 알림이 표시되었습니다!',
+      playSound: true,
+      soundName: 'alarm.mp3', // 커스텀 알람 소리
+      vibrate: true,
+      vibration: 3000,
+      importance: 'high',
+      priority: 'high',
+      userInfo: { action: 'immediate_test' } as NotificationUserInfo,
+    });
+    
+    console.log('✅ 즉시 알림 설정 완료');
+    
+    // 5초 후에 다시 즉시 알림으로 테스트 (스케줄 대신)
+    setTimeout(() => {
+      console.log('🕐 5초 후 즉시 알림 실행');
+      PushNotification.localNotification({
+        channelId: 'default-channel-id',
+        title: '⚡ 5초 후 즉시 알림',
+        message: '이것도 즉시 알림입니다!',
+        playSound: true,
+        soundName: 'alarm.mp3', // 커스텀 알람 소리
+        vibrate: true,
+        vibration: 3000,
+        importance: 'high',
+        priority: 'high',
+        userInfo: { action: 'delayed_immediate_test' } as NotificationUserInfo,
+      });
+    }, 5000);
+    
+    Alert.alert('즉시 + 5초 후 테스트', '즉시 알림이 나타났고, 5초 후에 또 다른 즉시 알림이 울립니다!');
+  }
+
+  // 1분 후 테스트 (setTimeout 사용)
+  testNotification(): void {
+    console.log('🧪 1분 후 푸시 알림 테스트 시작 (setTimeout 사용)');
+    
+    Alert.alert('1분 테스트 시작', '1분 후에 즉시 알림이 울립니다!\n(스케줄 대신 setTimeout 사용)');
+    
+    // setTimeout을 사용해서 1분 후에 즉시 알림
+    setTimeout(() => {
+      console.log('🕐 1분 후 즉시 알림 실행');
+      PushNotification.localNotification({
+        channelId: 'default-channel-id',
+        title: '🧪 1분 후 테스트 성공!',
+        message: 'setTimeout으로 1분 후 즉시 알림입니다!',
+        playSound: true,
+        soundName: 'alarm.mp3', // 커스텀 알람 소리
+        vibrate: true,
+        vibration: 2000,
+        importance: 'high',
+        priority: 'high',
+        userInfo: { action: 'timeout_test' } as NotificationUserInfo,
+      });
+    }, 60000); // 60초 = 1분
+    
+    console.log('✅ 1분 후 setTimeout 알림 설정 완료');
+  }
+
+  // 간단한 스케줄 테스트 (10초 후)
+  testSimpleSchedule(): void {
+    console.log('⏰ 간단한 10초 스케줄 테스트');
+    
+    const testTime = new Date();
+    testTime.setSeconds(testTime.getSeconds() + 10);
+    
+    console.log('예약 시간:', testTime.toString());
+    
+    PushNotification.localNotificationSchedule({
+      id: 2001, // 숫자 ID
+      title: '⏰ 10초 스케줄 테스트',
+      message: '10초 후 스케줄 알림입니다!',
+      date: testTime,
+      playSound: true,
+      soundName: 'alarm.mp3', // 커스텀 알람 소리
+      vibrate: true,
+      userInfo: { action: 'simple_schedule_test' } as NotificationUserInfo,
+    });
+    
+    console.log('✅ 10초 스케줄 알림 설정 완료');
+    Alert.alert('10초 스케줄 테스트', '10초 후에 스케줄 알림이 울립니다!');
+  }
+
+  // 푸시 알림 터치 시 처리
+  private handleScheduledCallNotification(notification: any): void {
+    console.log('📞 정시 대화 알림 처리:', notification);
+    
+    // 앱이 포그라운드에 있으면 즉시 다이얼로그
+    if (AppState.currentState === 'active') {
+      this.showCallDialog(notification.userInfo?.scheduled_time);
+    } else {
+      // 앱이 백그라운드/종료 상태면 앱을 열고 다이얼로그
+      this.bringAppToForegroundAndShowDialog(notification.userInfo?.scheduled_time);
+    }
+  }
+
+  // 대화 다이얼로그 표시
+  private showCallDialog(scheduledTime?: string): void {
+    Alert.alert(
+      '📞 정시 대화 시간이에요!',
+      scheduledTime ? `${this.formatTime(scheduledTime)}에 예정된 대화 시간입니다.` : '지금 대화를 시작하시겠어요?',
+      [
+        {
+          text: '지금 대화하기',
+          onPress: () => {
+            console.log('정시 대화 - 말하기 화면으로 이동');
+            this.navigateToSpeakScreen();
+          }
+        },
+        {
+          text: '10분 후에',
+          onPress: () => this.snoozeAlarm(10)
+        },
+        {
+          text: '건너뛰기',
+          style: 'cancel'
+        }
+      ]
+    );
+  }
+
+  // 앱을 포그라운드로 가져오고 다이얼로그 표시
+  private bringAppToForegroundAndShowDialog(scheduledTime?: string): void {
+    // 잠시 후 다이얼로그 표시 (앱이 완전히 로드될 시간 확보)
+    setTimeout(() => {
+      this.showCallDialog(scheduledTime);
+    }, 1000);
+  }
+
+  // 말하기 화면으로 이동
+  private navigateToSpeakScreen(): void {
+    console.log('🎯🎯🎯 navigateToSpeakScreen 호출됨!');
+    console.log('setScreenFunction 상태:', this.setScreenFunction);
+    
+    if (this.setScreenFunction) {
+      console.log('✅ 말하기 화면으로 이동 실행');
+      this.setScreenFunction('Speak');
+      console.log('✅ setScreenFunction(Speak) 호출 완료');
+      
+      // 추가로 Alert도 표시해서 확실히 확인
+      setTimeout(() => {
+        Alert.alert('화면 이동', '말하기 화면으로 이동했습니다!');
+      }, 500);
+    } else {
+      console.error('⚠️⚠️⚠️ setCurrentScreen 함수가 설정되지 않음');
+      Alert.alert('오류', 'setCurrentScreen 함수가 설정되지 않았습니다.');
+    }
+  }
+
+  // 스누즈 (10분 후 다시 알림)
+  private snoozeAlarm(minutes: number): void {
+    const snoozeTime = new Date();
+    snoozeTime.setMinutes(snoozeTime.getMinutes() + minutes);
+
+    PushNotification.localNotificationSchedule({
+      id: 3001, // 숫자 ID
+      channelId: 'scheduled-call-high',
+      title: '🔔 연기된 대화 시간',
+      message: '이제 대화를 시작해볼까요?',
+      date: snoozeTime,
+      playSound: true,
+      soundName: 'alarm.mp3', // 커스텀 알람 소리
+      vibrate: true,
+      vibration: 2000,
+      importance: 'high',
+      priority: 'high',
+      actions: ['대화하기', '다시연기'], // 띄어쓰기 없음
+      userInfo: { action: 'snooze_call' } as NotificationUserInfo,
+    });
+
+    Alert.alert('알림 연기', `${minutes}분 후에 다시 알려드릴게요`);
+  }
+
+  // 시간 형식 변환
+  private formatTime(timeStr: string): string {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? '오후' : '오전';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${ampm} ${displayHour}:${minutes}`;
+  }
+
+  // 모든 알림 취소
+  cancelAllNotifications(): void {
+    PushNotification.cancelAllLocalNotifications();
+    console.log('모든 푸시 알림 취소됨');
+  }
+
+  // 권한 확인
+  async checkPermissions(): Promise<boolean> {
+    try {
+      if (Platform.OS === 'android') {
+        const result = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+        );
+        console.log('현재 권한 상태:', result);
+        return result;
+      }
+      return true;
+    } catch (err) {
+      console.warn('권한 확인 오류:', err);
+      return false;
+    }
+  }
+}
+
+export default new RealNotificationManager();
+
+------------------------------------------------------------------------------------
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  SafeAreaView,
+  Switch,
+  Alert
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NotificationManager from '../utils/RealNotificationManager';
+
+interface Schedule {
+  id: number;
+  call_time: string;
+  is_enabled: boolean;
+  created_at: string;
+}
+
+interface TimeOption {
+  time: string;
+  label: string;
+}
+
+interface SettingScreenProps {
+  navigation: { 
+    goBack: () => void; 
+  };
+  userId: string;
+  apiBaseUrl: string;
+}
+
+const SettingScreen: React.FC<SettingScreenProps> = ({ navigation, userId, apiBaseUrl }) => {
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // 다양한 시간 옵션들 (복수 선택 가능)
+  const timeOptions: TimeOption[] = [
+    { time: '07:00', label: '오전 7시 (아침 일찍)' },
+    { time: '08:00', label: '오전 8시 (아침)' },
+    { time: '09:00', label: '오전 9시' },
+    { time: '10:00', label: '오전 10시' },
+    { time: '11:00', label: '오전 11시' },
+    { time: '12:00', label: '오후 12시 (점심)' },
+    { time: '13:00', label: '오후 1시' },
+    { time: '14:00', label: '오후 2시' },
+    { time: '15:00', label: '오후 3시' },
+    { time: '16:19', label: '오후 4시' },
+    { time: '17:00', label: '오후 5시' },
+    { time: '18:00', label: '오후 6시' },
+    { time: '19:00', label: '오후 7시 (저녁)' },
+    { time: '20:00', label: '오후 8시' },
+    { time: '21:00', label: '오후 9시' },
+  ];
+
+  useEffect(() => {
+    loadUserSchedules();
+    // 알림 권한 요청
+    requestNotificationPermissions();
+  }, []);
+
+  // 알림 권한 요청 및 확인
+  const requestNotificationPermissions = async () => {
+    try {
+      // 먼저 현재 권한 상태 확인
+      const hasPermission = await NotificationManager.checkPermissions();
+      
+      if (hasPermission) {
+        console.log('✅ 알림 권한이 이미 허용됨');
+        return true;
+      }
+
+      // 권한 요청
+      const granted = await NotificationManager.requestPermissions();
+      
+      if (granted) {
+        console.log('✅ 알림 권한 허용됨');
+        Alert.alert(
+          '권한 허용 완료',
+          '이제 정시 대화 알림을 받을 수 있습니다!',
+          [{ text: '확인' }]
+        );
+        return true;
+      } else {
+        console.log('❌ 알림 권한 거부됨');
+        Alert.alert(
+          '알림 권한 필요',
+          '정시 대화 알림을 받으려면 설정에서 알림 권한을 허용해주세요.\n\n설정 > 앱 > 트리팟 > 알림',
+          [
+            { text: '나중에' },
+            { 
+              text: '설정으로 이동', 
+              onPress: () => {
+                // 설정 앱으로 이동하는 로직 추가 가능
+                console.log('설정 앱으로 이동 필요');
+              }
+            }
+          ]
+        );
+        return false;
+      }
+    } catch (error) {
+      console.error('권한 요청 실패:', error);
+      return false;
+    }
+  };
+
+  // 사용자 스케줄 조회
+  const loadUserSchedules = async (): Promise<void> => {
+    try {
+      console.log('📋 스케줄 조회 요청');
+      
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/${userId}`);
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log('✅ 스케줄 조회 성공:', result);
+        setSchedules(result.schedules);
+        
+        // 로컬 저장
+        await AsyncStorage.setItem('userSchedules', JSON.stringify(result.schedules));
+      } else {
+        console.error('❌ 스케줄 조회 실패:', result);
+      }
+    } catch (error) {
+      console.error('❌ 스케줄 조회 네트워크 오류:', error);
+    }
+  };
+
+  // 시간 선택 토글 (복수 선택 가능)
+  const toggleTimeSelection = (time: string): void => {
+    setSelectedTimes((prev: string[]) => 
+      prev.includes(time) 
+        ? prev.filter((t: string) => t !== time)
+        : [...prev, time].sort()
+    );
+  };
+
+  // 스케줄 저장 (백엔드 + 푸시 알림)
+  const handleSaveSchedule = async (): Promise<void> => {
+    if (selectedTimes.length === 0) {
+      Alert.alert('알림', '최소 하나의 시간을 선택해주세요.');
+      return;
+    }
+
+    // 먼저 알림 권한 확인
+    const hasPermission = await requestNotificationPermissions();
+    if (!hasPermission) {
+      Alert.alert(
+        '권한 필요',
+        '알림 권한이 없으면 푸시 알림을 받을 수 없습니다.\n스케줄은 저장되지만 앱 내에서만 알림이 작동합니다.',
+        [
+          { text: '취소', style: 'cancel' },
+          { text: '그래도 저장', onPress: () => saveScheduleWithoutNotification() }
+        ]
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      console.log('⏰ 스케줄 설정 요청:', selectedTimes);
+      
+      // 1. 백엔드에 스케줄 저장
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/set`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id_str: userId,
+          call_times: selectedTimes
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log('✅ 백엔드 스케줄 설정 성공:', result);
+        setSchedules(result.schedules);
+        setSelectedTimes([]);
+        
+        // 로컬 저장
+        await AsyncStorage.setItem('userSchedules', JSON.stringify(result.schedules));
+        
+        // 2. 푸시 알림 스케줄 설정
+        try {
+          NotificationManager.scheduleConversationAlarm(selectedTimes);
+          console.log('✅ 푸시 알림 설정 완료');
+          
+          Alert.alert(
+            '설정 완료! 🎉',
+            `정시 대화 알림이 설정되었습니다.\n설정된 시간: ${selectedTimes.map(formatTime).join(', ')}\n\n📱 앱이 꺼져있어도 알림이 울립니다!\n🔔 전화벨 같은 큰 소리와 진동`,
+            [{ text: '확인' }]
+          );
+        } catch (notificationError) {
+          console.error('❌ 푸시 알림 설정 실패:', notificationError);
+          Alert.alert('알림 설정 실패', '푸시 알림 설정에 실패했지만 스케줄은 저장되었습니다.');
+        }
+        
+      } else {
+        console.error('❌ 백엔드 스케줄 설정 실패:', result);
+        Alert.alert('오류', result.detail || '스케줄 설정에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ 스케줄 설정 네트워크 오류:', error);
+      Alert.alert('네트워크 오류', '스케줄을 설정할 수 없습니다.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 권한 없이 스케줄만 저장
+  const saveScheduleWithoutNotification = async (): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/set`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id_str: userId,
+          call_times: selectedTimes
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setSchedules(result.schedules);
+        setSelectedTimes([]);
+        await AsyncStorage.setItem('userSchedules', JSON.stringify(result.schedules));
+        
+        Alert.alert(
+          '스케줄 저장됨',
+          '백엔드 스케줄은 저장되었습니다.\n푸시 알림을 받으려면 설정에서 알림 권한을 허용해주세요.',
+          [{ text: '확인' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert('오류', '스케줄 저장에 실패했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 스케줄 토글
+  const toggleSchedule = async (scheduleId: number, isEnabled: boolean): Promise<void> => {
+    try {
+      console.log('🔄 스케줄 토글:', scheduleId, isEnabled);
+      
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/${scheduleId}/toggle`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_enabled: isEnabled })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log('✅ 스케줄 토글 성공');
+        // 로컬 스케줄 상태 업데이트
+        const updatedSchedules = schedules.map((schedule: Schedule) => 
+          schedule.id === scheduleId 
+            ? { ...schedule, is_enabled: isEnabled }
+            : schedule
+        );
+        setSchedules(updatedSchedules);
+        await AsyncStorage.setItem('userSchedules', JSON.stringify(updatedSchedules));
+        
+        // 푸시 알림도 업데이트
+        const activeTimes = updatedSchedules
+          .filter(s => s.is_enabled)
+          .map(s => s.call_time);
+        NotificationManager.scheduleConversationAlarm(activeTimes);
+        
+      } else {
+        console.error('❌ 스케줄 토글 실패:', result);
+        Alert.alert('오류', result.detail || '스케줄 변경에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ 스케줄 토글 네트워크 오류:', error);
+      Alert.alert('네트워크 오류', '스케줄을 변경할 수 없습니다.');
+    }
+  };
+
+  // 모든 스케줄 제거
+  const removeAllSchedules = async (): Promise<void> => {
+    try {
+      console.log('🗑️ 모든 스케줄 제거');
+      
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/${userId}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log('✅ 백엔드 스케줄 제거 성공');
+        setSchedules([]);
+        await AsyncStorage.removeItem('userSchedules');
+        
+        // 푸시 알림도 모두 취소
+        NotificationManager.cancelAllNotifications();
+        console.log('✅ 푸시 알림도 모두 취소됨');
+        
+        Alert.alert('성공', '모든 스케줄과 알림이 제거되었습니다.');
+      } else {
+        console.error('❌ 스케줄 제거 실패:', result);
+        Alert.alert('오류', result.detail || '스케줄 제거에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ 스케줄 제거 네트워크 오류:', error);
+      Alert.alert('네트워크 오류', '스케줄을 제거할 수 없습니다.');
+    }
+  };
+
+  const handleRemoveAllSchedules = (): void => {
+    Alert.alert(
+      '스케줄 제거',
+      '모든 정시 대화 시간과 알림을 제거하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '제거',
+          style: 'destructive',
+          onPress: removeAllSchedules
+        }
+      ]
+    );
+  };
+
+  // 시간 형식 변환 함수
+  const formatTime = (timeStr: string): string => {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? '오후' : '오전';
+    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+    return `${ampm} ${displayHour}:${minutes}`;
+  };
+
+  // 즉시 테스트 알림
+  const handleImmediateTest = (): void => {
+    Alert.alert(
+      '즉시 테스트',
+      '5초 후에 즉시 테스트 알림이 울립니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '즉시 테스트',
+          onPress: () => {
+            NotificationManager.testImmediateNotification();
+          }
+        }
+      ]
+    );
+  };
+
+  // 테스트 알림
+  const handleTestNotification = (): void => {
+    Alert.alert(
+      '테스트 알림',
+      '1분 후에 테스트 알림이 울립니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '테스트 시작',
+          onPress: () => {
+            NotificationManager.testNotification();
+          }
+        }
+      ]
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backButton}>‹ 뒤로</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>정시 대화 설정</Text>
+        <View style={{ flexDirection: 'row' }}>
+          <TouchableOpacity onPress={handleTestNotification}>
+            <Text style={styles.testButton}>🧪 1분</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleImmediateTest} style={{ marginLeft: 8 }}>
+            <Text style={styles.testButton}>⚡ 즉시</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => NotificationManager.testSimpleSchedule()} style={{ marginLeft: 8 }}>
+            <Text style={styles.testButton}>⏰ 10초</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content}>
+        {/* 현재 설정된 스케줄 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>현재 설정된 시간</Text>
+          {schedules.length > 0 ? (
+            schedules.map((schedule: Schedule) => (
+              <View key={schedule.id} style={styles.scheduleItem}>
+                <Text style={styles.scheduleTime}>
+                  {formatTime(schedule.call_time)}
+                </Text>
+                <Switch
+                  value={schedule.is_enabled}
+                  onValueChange={(value: boolean) => toggleSchedule(schedule.id, value)}
+                  trackColor={{ false: '#ccc', true: '#007AFF' }}
+                />
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noScheduleText}>설정된 시간이 없습니다.</Text>
+          )}
+          
+          {schedules.length > 0 && (
+            <TouchableOpacity 
+              style={styles.removeAllButton}
+              onPress={handleRemoveAllSchedules}
+            >
+              <Text style={styles.removeAllButtonText}>모든 스케줄 제거</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* 새 시간 추가 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>새 시간 추가</Text>
+          <Text style={styles.sectionDescription}>
+            말벗과 대화할 시간을 선택하세요. (복수 선택 가능)
+          </Text>
+          
+          <View style={styles.timeGrid}>
+            {timeOptions.map((option: TimeOption) => (
+              <TouchableOpacity
+                key={option.time}
+                style={[
+                  styles.timeOption,
+                  selectedTimes.includes(option.time) && styles.timeOptionSelected
+                ]}
+                onPress={() => toggleTimeSelection(option.time)}
+              >
+                <Text style={[
+                  styles.timeOptionText,
+                  selectedTimes.includes(option.time) && styles.timeOptionTextSelected
+                ]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {selectedTimes.length > 0 && (
+            <View style={styles.selectedTimesContainer}>
+              <Text style={styles.selectedTimesTitle}>선택된 시간:</Text>
+              <Text style={styles.selectedTimesText}>
+                {selectedTimes.map((time: string) => formatTime(time)).join(', ')}
+              </Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              (selectedTimes.length === 0 || isLoading) && styles.saveButtonDisabled
+            ]}
+            onPress={handleSaveSchedule}
+            disabled={selectedTimes.length === 0 || isLoading}
+          >
+            <Text style={styles.saveButtonText}>
+              {isLoading ? '저장 중...' : '스케줄 저장'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 안내 메시지 */}
+        <View style={styles.infoSection}>
+          <Text style={styles.infoTitle}>🔔 알림 기능</Text>
+          <Text style={styles.infoText}>
+            • 설정한 시간에 **앱이 꺼져있어도** 알림이 울립니다{'\n'}
+            • 전화벨처럼 **큰 소리와 진동**으로 알림{'\n'}
+            • 알림을 터치하면 바로 대화 시작 가능{'\n'}
+            • "10분 후에" 연기 기능 제공{'\n'}
+            • 무음 모드에서도 알림 (중요도 높음)
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff'
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  backButton: {
+    fontSize: 18,
+    color: '#007AFF'
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600'
+  },
+  testButton: {
+    fontSize: 14,
+    color: '#FF9500'
+  },
+  content: {
+    flex: 1,
+    padding: 16
+  },
+  section: {
+    marginBottom: 32
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#333'
+  },
+  sectionDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16
+  },
+  scheduleItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8
+  },
+  scheduleTime: {
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  noScheduleText: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    padding: 32
+  },
+  removeAllButton: {
+    backgroundColor: '#FF3B30',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16
+  },
+  removeAllButtonText: {
+    color: 'white',
+    textAlign: 'center',
+    fontWeight: '600'
+  },
+  timeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between'
+  },
+  timeOption: {
+    width: '48%',
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: 'transparent'
+  },
+  timeOptionSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#0056b3'
+  },
+  timeOptionText: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333'
+  },
+  timeOptionTextSelected: {
+    color: 'white'
+  },
+  selectedTimesContainer: {
+    backgroundColor: '#e3f2fd',
+    padding: 16,
+    borderRadius: 8,
+    marginTop: 16
+  },
+  selectedTimesTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1976d2',
+    marginBottom: 4
+  },
+  selectedTimesText: {
+    fontSize: 14,
+    color: '#1976d2'
+  },
+  saveButton: {
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 8,
+    marginTop: 24
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#ccc'
+  },
+  saveButtonText: {
+    color: 'white',
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  infoSection: {
+    backgroundColor: '#e8f5e8',
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4caf50'
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2e7d32',
+    marginBottom: 8
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#2e7d32',
+    lineHeight: 20
+  }
+});
+
+export default SettingScreen;

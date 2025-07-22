@@ -20,10 +20,9 @@ LogBox.ignoreLogs([
   'EventEmitter.removeListener',
 ]);
 
-// --- 타입 정의 추가 ---
 interface Message {
   id: number;
-  type: 'user' | 'ai';
+  type: 'user' | 'ai' | 'system';
   content: string;
   timestamp: string;
 }
@@ -32,37 +31,24 @@ interface SpeakScreenProps {
   navigation: {
     goBack: () => void;
   };
+  userId: string;
+  apiBaseUrl: string;
 }
-// --- 여기까지 ---
 
-const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
+const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation, userId, apiBaseUrl }) => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const websocketRef = useRef<WebSocket | null>(null);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const websocketRef = useRef<any>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const retryCountRef = useRef(0);
-  const userClosedConnection = useRef(false);
+  const retryCountRef = useRef<number>(0);
+  const userClosedConnection = useRef<boolean>(false);
 
   useEffect(() => {
-    const setupUserAndInitialize = async () => {
-      try {
-        let id = await AsyncStorage.getItem('user_id');
-        if (!id) {
-          id = `user_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-          await AsyncStorage.setItem('user_id', id);
-        }
-        setUserId(id);
-      } catch (e) {
-        Alert.alert('오류', '사용자 정보를 저장하거나 불러오는 데 실패했습니다.');
-      }
-    };
-    setupUserAndInitialize();
-
+    initializeApp();
     return () => {
       cleanupAudio();
       if (websocketRef.current) {
@@ -72,13 +58,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     };
   }, []);
 
-  useEffect(() => {
-    if (userId) {
-      initializeApp();
-    }
-  }, [userId]);
-
-  const initializeApp = async () => {
+  const initializeApp = async (): Promise<void> => {
     try {
       await requestPermissions();
       await setupTTS();
@@ -89,7 +69,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     }
   };
 
-  const setupTTS = async () => {
+  const setupTTS = async (): Promise<void> => {
     Tts.removeAllListeners('tts-start');
     Tts.removeAllListeners('tts-finish');
     Tts.removeAllListeners('tts-cancel');
@@ -107,7 +87,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     await Tts.setDefaultRate(0.5);
   };
 
-  const requestPermissions = async () => {
+  const requestPermissions = async (): Promise<void> => {
     if (Platform.OS === 'android') {
         try {
           const granted = await PermissionsAndroid.request(
@@ -130,79 +110,138 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
       }
   };
 
-  const connectWebSocket = () => {
-  if (!userId) return;
+  const connectWebSocket = (): void => {
+    if (!userId) return;
 
-  const wsUrl = `ws://192.168.101.67:8080/api/v1/senior/ws/${userId}`;
-  console.log(`🔗 WebSocket 연결 시도: ${wsUrl}`);
-  console.log(`🔗 사용자 ID: ${userId}`);
-  
-  try {
-    websocketRef.current = new WebSocket(wsUrl);
-
-    // @ts-ignore
-    websocketRef.current.onopen = (event) => {
-      setIsConnected(true);
-      console.log('✅ WebSocket 연결 성공', event);
-      retryCountRef.current = 0;
-    };
-
-    // @ts-ignore
-    websocketRef.current.onmessage = (event) => {
-      try {
-        console.log('📩 받은 메시지:', event.data);
-        const data = JSON.parse(event.data);
-        if (data.type === 'ai_message') {
-          handleAIMessage(data.content);
-          setIsProcessing(false);
-        } else if (data.type === 'user_message') {
-          handleUserMessage(data.content);
-        } else if (data.type === 'error') {
-          Alert.alert('처리 오류', data.content);
-          setIsProcessing(false);
-        }
-      } catch (error) {
-        console.error('❌ 메시지 파싱 오류:', error);
-        setIsProcessing(false);
-      }
-    };
-
-    // @ts-ignore
-    websocketRef.current.onclose = (event) => {
-      setIsConnected(false);
-      console.log('❌ WebSocket 연결 종료. Code:', event.code, 'Reason:', event.reason);
-      
-      if (userClosedConnection.current) {
-        console.log('사용자가 연결을 종료하여 재연결하지 않습니다.');
-        return;
-      }
-      
-      if (retryCountRef.current < 5) {
-        retryCountRef.current += 1;
-        console.log(`🔄 WebSocket 재연결 시도 (${retryCountRef.current}/5)`);
-        setTimeout(connectWebSocket, 3000);
-      } else {
-        console.log('최대 재연결 횟수를 초과했습니다.');
-        Alert.alert('연결 실패', '서버에 연결할 수 없습니다. 잠시 후 앱을 다시 시작해 주세요.');
-      }
-    };
-
-    // @ts-ignore
-    websocketRef.current.onerror = (error) => {
-      console.error('❌ WebSocket 오류:', error);
-      setIsConnected(false);
-    };
+    const wsUrl = `ws://192.168.101.67:8080/api/v1/senior/ws/${userId}`;
+    console.log(`🔗 WebSocket 연결 시도: ${wsUrl}`);
+    console.log(`🔗 사용자 ID: ${userId}`);
     
-  } catch (error) {
-    console.error('❌ WebSocket 생성 오류:', error);
-    setIsConnected(false);
-  }
-};
+    try {
+      websocketRef.current = new WebSocket(wsUrl);
 
-  const startRecording = async () => {
+      if (websocketRef.current) {
+        websocketRef.current.onopen = (event: any) => {
+          setIsConnected(true);
+          console.log('✅ WebSocket 연결 성공', event);
+          retryCountRef.current = 0;
+        };
+
+        websocketRef.current.onmessage = (event: any) => {
+          try {
+            console.log('📩 받은 메시지:', event.data);
+            const data = JSON.parse(event.data);
+            
+            // ✨ 정시 대화 알림 처리
+            if (data.type === 'scheduled_call') {
+              handleScheduledCall(data);
+            } else if (data.type === 'ai_message') {
+              handleAIMessage(data.content);
+              setIsProcessing(false);
+            } else if (data.type === 'user_message') {
+              handleUserMessage(data.content);
+            } else if (data.type === 'system_message') {
+              handleSystemMessage(data.content);
+            } else if (data.type === 'error') {
+              Alert.alert('처리 오류', data.content);
+              setIsProcessing(false);
+            }
+          } catch (error) {
+            console.error('❌ 메시지 파싱 오류:', error);
+            setIsProcessing(false);
+          }
+        };
+
+        websocketRef.current.onclose = (event: any) => {
+          setIsConnected(false);
+          console.log('❌ WebSocket 연결 종료. Code:', event.code, 'Reason:', event.reason);
+          
+          if (userClosedConnection.current) {
+            console.log('사용자가 연결을 종료하여 재연결하지 않습니다.');
+            return;
+          }
+          
+          if (retryCountRef.current < 5) {
+            retryCountRef.current += 1;
+            console.log(`🔄 WebSocket 재연결 시도 (${retryCountRef.current}/5)`);
+            setTimeout(connectWebSocket, 3000);
+          } else {
+            console.log('최대 재연결 횟수를 초과했습니다.');
+            Alert.alert('연결 실패', '서버에 연결할 수 없습니다. 잠시 후 앱을 다시 시작해 주세요.');
+          }
+        };
+
+        websocketRef.current.onerror = (error: any) => {
+          console.error('❌ WebSocket 오류:', error);
+          setIsConnected(false);
+        };
+      }
+      
+    } catch (error) {
+      console.error('❌ WebSocket 생성 오류:', error);
+      setIsConnected(false);
+    }
+  };
+
+  // ✨ 정시 대화 알림 처리
+  const handleScheduledCall = (data: any): void => {
+    console.log('📞 정시 대화 알림 수신:', data);
+    
+    Alert.alert(
+      '🗣️ 대화 시간이에요!',
+      '말벗과 대화를 시작하시겠어요?',
+      [
+        {
+          text: '지금 대화하기',
+          onPress: () => {
+            console.log('📞 정시 대화 즉시 시작');
+            sendScheduledCallResponse('start_now');
+          },
+          style: 'default'
+        },
+        {
+          text: '10분 후에',
+          onPress: () => {
+            console.log('⏰ 대화 10분 연기');
+            sendScheduledCallResponse('snooze');
+          },
+          style: 'default'
+        },
+        {
+          text: '오늘은 건너뛰기',
+          onPress: () => {
+            console.log('⏭️ 오늘 대화 건너뛰기');
+            sendScheduledCallResponse('skip');
+          },
+          style: 'cancel'
+        }
+      ],
+      { cancelable: false }
+    );
+  };
+
+  // ✨ 정시 대화 응답 전송
+  const sendScheduledCallResponse = (action: string): void => {
+    if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
+      const response = {
+        type: 'scheduled_call_response',
+        action: action,
+        timestamp: new Date().toISOString()
+      };
+      websocketRef.current.send(JSON.stringify(response));
+    }
+  };
+
+  const startRecording = async (): Promise<void> => {
     if (isSpeaking || isProcessing) return;
     try {
-      const options = { sampleRate: 16000, channels: 1, bitsPerSample: 16, audioSource: 6, wavFile: 'voice_recording.wav' };
+      const options = { 
+        sampleRate: 16000, 
+        channels: 1, 
+        bitsPerSample: 16, 
+        audioSource: 6, 
+        wavFile: 'voice_recording.wav' 
+      };
       AudioRecord.init(options);
       AudioRecord.start();
       setIsRecording(true);
@@ -218,7 +257,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     }
   };
 
-  const stopRecording = async () => {
+  const stopRecording = async (): Promise<void> => {
     if (!isRecording) return;
     try {
       setIsRecording(false);
@@ -230,8 +269,6 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
       const audioFile = await AudioRecord.stop();
       const audioBase64 = await RNFS.readFile(audioFile, 'base64');
       if (websocketRef.current && isConnected) {
-        // ❗️❗️ 2. 데이터 전송 방식 수정 ❗️❗️
-        // 백엔드가 base64 문자열을 바로 받도록 수정되었으므로, JSON으로 감싸지 않고 보냅니다.
         websocketRef.current.send(audioBase64);
       }
     } catch (error) {
@@ -240,16 +277,36 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleUserMessage = (message: string) => {
-    setMessages(prev => [...prev, { id: Date.now(), type: 'user', content: message, timestamp: new Date().toLocaleTimeString() }]);
+  const handleUserMessage = (message: string): void => {
+    setMessages(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'user', 
+      content: message, 
+      timestamp: new Date().toLocaleTimeString() 
+    }]);
   };
 
-  const handleAIMessage = (message: string) => {
-    setMessages(prev => [...prev, { id: Date.now(), type: 'ai', content: message, timestamp: new Date().toLocaleTimeString() }]);
+  const handleAIMessage = (message: string): void => {
+    setMessages(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'ai', 
+      content: message, 
+      timestamp: new Date().toLocaleTimeString() 
+    }]);
     speakMessage(message);
   };
 
-  const speakMessage = async (message: string) => {
+  // ✨ 시스템 메시지 처리 (정시 대화 관련)
+  const handleSystemMessage = (message: string): void => {
+    setMessages(prev => [...prev, { 
+      id: Date.now(), 
+      type: 'system', 
+      content: message, 
+      timestamp: new Date().toLocaleTimeString() 
+    }]);
+  };
+
+  const speakMessage = async (message: string): Promise<void> => {
     try {
       await Tts.speak(message);
     } catch (error) {
@@ -257,7 +314,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     }
   };
 
-  const cleanupAudio = () => {
+  const cleanupAudio = (): void => {
     try {
       AudioRecord.stop();
       Tts.stop();
@@ -269,7 +326,7 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleEndConversation = () => {
+  const handleEndConversation = (): void => {
     console.log('--- 대화 세션 종료 ---');
     cleanupAudio(); 
     userClosedConnection.current = true;
@@ -277,15 +334,15 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
     navigation.goBack(); 
   };
   
-  const getStatusText = () => {
+  const getStatusText = (): string => {
     if (isSpeaking) return '🔊 AI 말하는 중...';
     if (isProcessing) return '⚙️ 음성 처리 중...';
     if (isRecording) return '🎤 녹음 중...';
     if (!isConnected) return '🔌 연결 중...';
-    return '대기 중';
+    return '대기 중 (정시 알림 활성화)';
   };
 
-  const getStatusColor = () => {
+  const getStatusColor = (): string => {
     if (isSpeaking) return '#FF9800';
     if (isProcessing) return '#2196F3';
     if (isRecording) return '#4CAF50';
@@ -309,14 +366,16 @@ const SpeakScreen: React.FC<SpeakScreenProps> = ({ navigation }) => {
         style={styles.messagesContainer}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        {messages.map((message) => (
+        {messages.map((message: Message) => (
           <View key={message.id} style={[
             styles.messageContainer,
-            message.type === 'user' ? styles.userMessage : styles.aiMessage
+            message.type === 'user' ? styles.userMessage : 
+            message.type === 'system' ? styles.systemMessage : styles.aiMessage
           ]}>
             <Text style={[
               styles.messageText,
-              message.type === 'user' ? styles.userMessageText : styles.aiMessageText
+              message.type === 'user' ? styles.userMessageText : 
+              message.type === 'system' ? styles.systemMessageText : styles.aiMessageText
             ]}>
               {message.content}
             </Text>
@@ -360,9 +419,11 @@ const styles = StyleSheet.create({
   messageContainer: { marginVertical: 8, padding: 15, borderRadius: 15, maxWidth: '85%', },
   userMessage: { alignSelf: 'flex-end', backgroundColor: '#007AFF', },
   aiMessage: { alignSelf: 'flex-start', backgroundColor: '#E5E5EA', },
+  systemMessage: { alignSelf: 'center', backgroundColor: '#FFF3CD', borderWidth: 1, borderColor: '#FFEAA7', },
   messageText: { fontSize: 16, lineHeight: 22, },
   userMessageText: { color: '#fff', },
   aiMessageText: { color: '#333', },
+  systemMessageText: { color: '#856404', textAlign: 'center', fontStyle: 'italic' },
   timestamp: { fontSize: 12, color: '#999', marginTop: 5, alignSelf: 'flex-end', },
   controlsContainer: { padding: 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', },
   recordButton: { backgroundColor: '#4CAF50', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 25, alignItems: 'center', marginBottom: 10, },

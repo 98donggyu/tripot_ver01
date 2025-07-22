@@ -10,7 +10,6 @@ interface HomeScreenProps { navigation: { navigate: (screen: string) => void; };
 
 const HomeScreenComponent: React.FC<HomeScreenProps> = ({ navigation }) => {
   const menuItems: MenuItem[] = [
-    // 이미지 경로를 ../images/ 로 수정합니다.
     { id: 1, name: '말하기', image: require('../images/speak.png'), screen: 'Speak' },
     { id: 2, name: '가족 마당', image: require('../images/family.png'), screen: 'FamilyFeed' },
     { id: 3, name: '라디오', image: require('../images/radio.png'), screen: 'Radio' },
@@ -28,7 +27,8 @@ const HomeScreenComponent: React.FC<HomeScreenProps> = ({ navigation }) => {
           <Text style={homeStyles.userName}>라기선님</Text>
         </View>
         <View style={homeStyles.headerIcons}>
-          <TouchableOpacity onPress={() => Alert.alert('알림', '설정 기능은 준비 중입니다.')} style={homeStyles.iconButton}>
+          {/* ✨ 설정 버튼을 Setting 화면으로 연결 */}
+          <TouchableOpacity onPress={() => navigation.navigate('Setting')} style={homeStyles.iconButton}>
             <SvgXml xml={settingsIconSvg} width="100%" height="100%" />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('Calendar')} style={homeStyles.iconButton}>

@@ -38,11 +38,14 @@ services:
       retries: 10
     env_file:
       - .env
+    environment:
+      TZ: Asia/Seoul  # ✨ environment 섹션 안에 추가
+    command: --default-time-zone='+09:00'  # ✨ 추가
     ports:
       - "3307:3306" # DBeaver 등 외부 DB 도구 접속용 포트
     volumes:
       - mysql_data_new:/var/lib/mysql
     restart: unless-stopped
-
+    
 volumes:
   mysql_data_new:

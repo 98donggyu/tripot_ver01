@@ -20,6 +20,7 @@
     "react-native-camera": "^4.2.1",
     "react-native-fs": "^2.20.0",
     "react-native-permissions": "^5.4.1",
+    "react-native-push-notification": "^8.1.1",
     "react-native-svg": "^15.3.0",
     "react-native-tts": "^4.1.1",
     "react-native-video": "^6.16.1"
@@ -33,6 +34,7 @@
     "@react-native/metro-config": "0.73.5",
     "@react-native/typescript-config": "0.73.1",
     "@types/react": "^18.2.6",
+    "@types/react-native-push-notification": "^8.1.4",
     "@types/react-test-renderer": "^18.0.0",
     "babel-jest": "^29.6.3",
     "eslint": "^8.19.0",

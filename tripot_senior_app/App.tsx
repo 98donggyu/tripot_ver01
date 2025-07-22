@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StyleSheet, Alert, BackHandler, ActivityIndicator, View, Text, StatusBar, LogBox } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import RealNotificationManager from './src/utils/RealNotificationManager'; // ✨ 추가
 
 import HomeScreen from './src/screens/HomeScreen';
 import CameraScreen from './src/screens/CameraScreen';
@@ -12,15 +13,34 @@ import RadioScreen from './src/screens/RadioScreen';
 import PlayScreen from './src/screens/PlayScreen';
 import HealthScreen from './src/screens/HealthScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
+import SettingScreen from './src/screens/SettingScreen.tsx'; // ✨ 새로 추가
 
 LogBox.ignoreLogs(['ViewPropTypes will be removed']);
 
 const API_BASE_URL = 'http://192.168.101.67:8080';
 const USER_ID = 'user_1752303760586_8wi64r';
 
-interface Comment { id: number; author_name: string; comment_text: string; created_at: string; }
-interface Photo { id: number; uploaded_by: string; created_at: string; comments: Comment[]; }
-interface MarkedDates { [key: string]: { marked?: boolean; dotColor?: string; note?: string; }; }
+interface Comment { 
+  id: number; 
+  author_name: string; 
+  comment_text: string; 
+  created_at: string; 
+}
+
+interface Photo { 
+  id: number; 
+  uploaded_by: string; 
+  created_at: string; 
+  comments: Comment[]; 
+}
+
+interface MarkedDates { 
+  [key: string]: { 
+    marked?: boolean; 
+    dotColor?: string; 
+    note?: string; 
+  }; 
+}
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('Home');
@@ -30,12 +50,25 @@ export default function App() {
   const [currentPhotoDetail, setCurrentPhotoDetail] = useState<any>(null);
   const [markedDates, setMarkedDates] = useState<MarkedDates>({});
 
+  // ✨ RealNotificationManager 초기화
+  useEffect(() => {
+    console.log('📱 App 초기화 시작');
+    
+    // setCurrentScreen 함수를 RealNotificationManager에 연결
+    RealNotificationManager.setScreen(setCurrentScreen);
+    console.log('🔔 RealNotificationManager 초기화 완료');
+  }, []);
+
   useEffect(() => {
     const loadCalendarData = async () => {
       try {
         const savedData = await AsyncStorage.getItem('calendarData');
-        if (savedData !== null) { setMarkedDates(JSON.parse(savedData)); }
-      } catch (e) { console.error('Failed to load calendar data.', e); }
+        if (savedData !== null) { 
+          setMarkedDates(JSON.parse(savedData)); 
+        }
+      } catch (e) { 
+        console.error('Failed to load calendar data.', e); 
+      }
     };
     loadCalendarData();
   }, []);
@@ -44,13 +77,22 @@ export default function App() {
     try {
       const stringifiedData = JSON.stringify(data);
       await AsyncStorage.setItem('calendarData', stringifiedData);
-    } catch (e) { console.error('Failed to save calendar data.', e); }
+    } catch (e) { 
+      console.error('Failed to save calendar data.', e); 
+    }
   };
 
   const handleUpdateEvent = (date: string, note: string) => {
     const newMarkedDates = { ...markedDates };
-    if (!note.trim()) { delete newMarkedDates[date]; } 
-    else { newMarkedDates[date] = { marked: true, dotColor: '#50cebb', note: note }; }
+    if (!note.trim()) { 
+      delete newMarkedDates[date]; 
+    } else { 
+      newMarkedDates[date] = { 
+        marked: true, 
+        dotColor: '#50cebb', 
+        note: note 
+      }; 
+    }
     setMarkedDates(newMarkedDates);
     saveCalendarData(newMarkedDates);
   };
@@ -79,12 +121,22 @@ export default function App() {
     const url = `${API_BASE_URL}/api/v1/family/family-yard/upload`;
     
     const formData = new FormData();
-    formData.append('file', { uri: imageUri, type: 'image/jpeg', name: `photo_${Date.now()}.jpg` });
+    formData.append('file', { 
+      uri: imageUri, 
+      type: 'image/jpeg', 
+      name: `photo_${Date.now()}.jpg` 
+    } as any);
     formData.append('user_id_str', USER_ID);
     formData.append('uploaded_by', 'senior');
 
     try {
-      const response = await fetch(url, { method: 'POST', body: formData, headers: { 'Content-Type': 'multipart/form-data' } });
+      const response = await fetch(url, { 
+        method: 'POST', 
+        body: formData, 
+        headers: { 
+          'Content-Type': 'multipart/form-data' 
+        } 
+      });
       const result = await response.json();
       if (response.ok) {
         Alert.alert('성공', '사진을 가족마당에 등록했습니다!');
@@ -100,10 +152,14 @@ export default function App() {
     }
   };
 
+  // ✨ navigate 함수 (RealNotificationManager에서 사용)
   const navigate = (screen: string) => {
+    console.log('📍 화면 이동:', screen);
+    
     if (screen === 'FamilyFeed') {
       fetchFamilyPhotos();
     }
+    
     setCurrentScreen(screen);
   };
 
@@ -155,25 +211,87 @@ export default function App() {
     switch (currentScreen) {
       case 'Home':
         return <HomeScreen navigation={{ navigate }} />;
+        
       case 'Camera':
-        return <CameraScreen navigation={{ navigateToPreview, goBack: () => setCurrentScreen('Home') }} />;
+        return (
+          <CameraScreen 
+            navigation={{ 
+              navigateToPreview, 
+              goBack: () => setCurrentScreen('Home') 
+            }} 
+          />
+        );
+        
       case 'Preview':
-        return <PreviewScreen route={{ params: { imageUri: currentImageUri } }} navigation={{ goBack: () => setCurrentScreen('Camera'), register: uploadPhoto }} />;
+        return (
+          <PreviewScreen 
+            route={{ params: { imageUri: currentImageUri } }} 
+            navigation={{ 
+              goBack: () => setCurrentScreen('Camera'), 
+              register: uploadPhoto 
+            }} 
+          />
+        );
+        
       case 'FamilyFeed':
-        return <FamilyFeedScreen apiBaseUrl={API_BASE_URL} feedData={familyFeedData} isLoading={isLoading} navigation={{ openDetail: openPhotoDetail, goBack: () => setCurrentScreen('Home') }} onRefresh={fetchFamilyPhotos} />;
+        return (
+          <FamilyFeedScreen 
+            apiBaseUrl={API_BASE_URL} 
+            feedData={familyFeedData} 
+            isLoading={isLoading} 
+            navigation={{ 
+              openDetail: openPhotoDetail, 
+              goBack: () => setCurrentScreen('Home') 
+            }} 
+            onRefresh={fetchFamilyPhotos} 
+          />
+        );
+        
       case 'PhotoDetail':
         if (!currentPhotoDetail) return null;
-        return <PhotoDetailScreen route={{ params: currentPhotoDetail }} navigation={{ goBack: () => setCurrentScreen('FamilyFeed') }} />;
+        return (
+          <PhotoDetailScreen 
+            route={{ params: currentPhotoDetail }} 
+            navigation={{ goBack: () => setCurrentScreen('FamilyFeed') }} 
+          />
+        );
+        
       case 'Speak':
-        return <SpeakScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+        return (
+          <SpeakScreen 
+            navigation={{ goBack: () => setCurrentScreen('Home') }}
+            userId={USER_ID}
+            apiBaseUrl={API_BASE_URL}
+          />
+        );
+        
       case 'Radio':
         return <RadioScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+        
       case 'Play':
         return <PlayScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+        
       case 'Health':
         return <HealthScreen navigation={{ goBack: () => setCurrentScreen('Home') }} />;
+        
       case 'Calendar':
-        return <CalendarScreen navigation={{ goBack: () => setCurrentScreen('Home') }} savedDates={markedDates} onUpdateEvent={handleUpdateEvent} />;
+        return (
+          <CalendarScreen 
+            navigation={{ goBack: () => setCurrentScreen('Home') }} 
+            savedDates={markedDates} 
+            onUpdateEvent={handleUpdateEvent} 
+          />
+        );
+        
+      case 'Setting': // ✨ 설정 화면
+        return (
+          <SettingScreen 
+            navigation={{ goBack: () => setCurrentScreen('Home') }}
+            userId={USER_ID}
+            apiBaseUrl={API_BASE_URL}
+          />
+        );
+        
       default:
         return <HomeScreen navigation={{ navigate }} />;
     }
@@ -188,7 +306,16 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, fontSize: 16 }
+  container: { 
+    flex: 1 
+  },
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  loadingText: { 
+    marginTop: 10, 
+    fontSize: 16 
+  }
 });
