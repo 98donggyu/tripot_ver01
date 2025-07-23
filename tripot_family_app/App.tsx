@@ -5,14 +5,35 @@ import HomeScreen from './src/screens/HomeScreen';
 import FamilyFeedScreen from './src/screens/FamilyFeedScreen';
 import PhotoDetailScreen from './src/screens/PhotoDetailScreen';
 import PhotoUploadScreen from './src/screens/PhotoUploadScreen';
+import SettingScreen from './src/screens/SettingScreen'; // ✨ 새로 추가
 
 LogBox.ignoreLogs(['ViewPropTypes will be removed']);
 
 const API_BASE_URL = 'http://192.168.101.67:8080';
-const USER_ID = 'user_1752303760586_8wi64r';
+const USER_ID = 'user_1752303760586_8wi64r';  // 가족 구성원 ID (같은 ID)
+const SENIOR_USER_ID = 'user_1752303760586_8wi64r';  // 어르신 ID (사진이 저장된 ID)
 
-interface Comment { id: number; author_name: string; comment_text: string; created_at: string; }
-interface Photo { id: number; uploaded_by: string; created_at: string; comments: Comment[]; }
+// 🔧 API 설정 로그
+console.log('🌐 가족 앱 API 설정:', {
+  apiBaseUrl: API_BASE_URL,
+  userId: USER_ID,
+  seniorUserId: SENIOR_USER_ID,
+  note: '사진은 SENIOR_USER_ID로 로딩'
+});
+
+interface Comment { 
+  id: number; 
+  author_name: string; 
+  comment_text: string; 
+  created_at: string; 
+}
+
+interface Photo { 
+  id: number; 
+  uploaded_by: string; 
+  created_at: string; 
+  comments: Comment[]; 
+}
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('Home');
@@ -23,15 +44,20 @@ export default function App() {
   const fetchFamilyPhotos = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/family/family-yard/photos?user_id_str=${USER_ID}`);
+      console.log('📸 가족 사진 로딩 시작...');
+      // 원래 SENIOR_USER_ID로 복구 (사진이 이 ID에 저장되어 있음)
+      const response = await fetch(`${API_BASE_URL}/api/v1/family/family-yard/photos?user_id_str=${SENIOR_USER_ID}`);
       const result = await response.json();
       if (response.ok && result.status === 'success') {
         setFamilyFeedData(result.photos_by_date || {});
+        console.log('✅ 가족 사진 로딩 성공:', Object.keys(result.photos_by_date || {}).length, '개 날짜');
       } else {
+        console.log('⚠️ 가족 사진 API 응답 오류:', result);
         Alert.alert('오류', '사진을 불러오는데 실패했습니다.');
         setFamilyFeedData({});
       }
     } catch (error) {
+      console.error('❌ 가족 사진 네트워크 오류:', error);
       Alert.alert('네트워크 오류', '서버에 연결할 수 없습니다.');
       setFamilyFeedData({});
     } finally {
@@ -44,12 +70,20 @@ export default function App() {
     const url = `${API_BASE_URL}/api/v1/family/family-yard/upload`;
     
     const formData = new FormData();
-    formData.append('file', { uri: imageUri, type: 'image/jpeg', name: `family_photo_${Date.now()}.jpg` });
-    formData.append('user_id_str', USER_ID);
+    formData.append('file', { 
+      uri: imageUri, 
+      type: 'image/jpeg', 
+      name: `family_photo_${Date.now()}.jpg` 
+    } as any);
+    formData.append('user_id_str', SENIOR_USER_ID); // 사진 업로드도 SENIOR_USER_ID로
     formData.append('uploaded_by', 'family');
 
     try {
-      const response = await fetch(url, { method: 'POST', body: formData, headers: { 'Content-Type': 'multipart/form-data' } });
+      const response = await fetch(url, { 
+        method: 'POST', 
+        body: formData, 
+        headers: { 'Content-Type': 'multipart/form-data' } 
+      });
       const result = await response.json();
       if (response.ok) {
         Alert.alert('성공', '사진을 가족마당에 등록했습니다!');
@@ -66,6 +100,8 @@ export default function App() {
   };
 
   const navigate = (screen: string) => {
+    console.log('📍 화면 이동:', screen);
+    
     if (screen === 'FamilyFeed') {
       fetchFamilyPhotos();
     }
@@ -114,30 +150,72 @@ export default function App() {
 
     switch (currentScreen) {
       case 'Home':
-        return <HomeScreen 
-                  navigation={{ navigateToFamilyFeed: () => navigate('FamilyFeed') }} 
-                  userId={USER_ID}
-                  apiBaseUrl={API_BASE_URL}
-               />;
+        return (
+          <HomeScreen 
+            navigation={{ 
+              navigateToFamilyFeed: () => navigate('FamilyFeed'),
+              navigateToSetting: () => navigate('Setting') // ✨ 설정 화면 추가
+            }} 
+            userId={USER_ID}
+            apiBaseUrl={API_BASE_URL}
+          />
+        );
+        
       case 'FamilyFeed':
-        return <FamilyFeedScreen 
-                  apiBaseUrl={API_BASE_URL} 
-                  feedData={familyFeedData} 
-                  isLoading={isLoading} 
-                  navigation={{ 
-                    openDetail: openPhotoDetail, 
-                    goBack: () => setCurrentScreen('Home'),
-                    navigateToPhotoUpload: () => navigate('PhotoUpload')
-                  }} 
-                  onRefresh={fetchFamilyPhotos} 
-               />;
+        return (
+          <FamilyFeedScreen 
+            apiBaseUrl={API_BASE_URL} 
+            feedData={familyFeedData} 
+            isLoading={isLoading} 
+            navigation={{ 
+              openDetail: openPhotoDetail, 
+              goBack: () => setCurrentScreen('Home'),
+              navigateToPhotoUpload: () => navigate('PhotoUpload')
+            }} 
+            onRefresh={fetchFamilyPhotos} 
+          />
+        );
+        
       case 'PhotoDetail':
         if (!currentPhotoDetail) return null;
-        return <PhotoDetailScreen route={{ params: currentPhotoDetail }} navigation={{ goBack: () => setCurrentScreen('FamilyFeed') }} />;
+        return (
+          <PhotoDetailScreen 
+            route={{ params: currentPhotoDetail }} 
+            navigation={{ goBack: () => setCurrentScreen('FamilyFeed') }} 
+          />
+        );
+        
       case 'PhotoUpload':
-        return <PhotoUploadScreen navigation={{ goBack: () => setCurrentScreen('FamilyFeed'), uploadPhoto: uploadPhoto }} />;
+        return (
+          <PhotoUploadScreen 
+            navigation={{ 
+              goBack: () => setCurrentScreen('FamilyFeed'), 
+              uploadPhoto: uploadPhoto 
+            }} 
+          />
+        );
+        
+      case 'Setting': // ✨ 새로운 설정 화면
+        return (
+          <SettingScreen 
+            navigation={{ goBack: () => setCurrentScreen('Home') }}
+            familyUserId={USER_ID}
+            seniorUserId={USER_ID}  // 같은 ID 사용
+            apiBaseUrl={API_BASE_URL}
+          />
+        );
+        
       default:
-        return <HomeScreen navigation={{ navigateToFamilyFeed: () => navigate('FamilyFeed') }} userId={USER_ID} apiBaseUrl={API_BASE_URL} />;
+        return (
+          <HomeScreen 
+            navigation={{ 
+              navigateToFamilyFeed: () => navigate('FamilyFeed'),
+              navigateToSetting: () => navigate('Setting')
+            }} 
+            userId={USER_ID} 
+            apiBaseUrl={API_BASE_URL} 
+          />
+        );
     }
   };
 
@@ -150,7 +228,16 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, fontSize: 16 }
+  container: { 
+    flex: 1 
+  },
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  loadingText: { 
+    marginTop: 10, 
+    fontSize: 16 
+  }
 });
