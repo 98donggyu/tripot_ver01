@@ -10,7 +10,7 @@ from app.db.models import User, ConversationSchedule
 
 router = APIRouter()
 
-# 기존 Pydantic 스키마
+# 정시 대화용 Pydantic 스키마
 class ScheduleRequest(BaseModel):
     user_id_str: str
     call_times: List[str]  # ["09:00", "14:00", "19:00"]
@@ -24,7 +24,6 @@ class ScheduleResponse(BaseModel):
 class ScheduleToggleRequest(BaseModel):
     is_enabled: bool
 
-# 🔥 새로운 가족용 스키마
 class FamilyScheduleRequest(BaseModel):
     senior_user_id: str      # 어르신 ID
     family_user_id: str      # 가족 구성원 ID
@@ -37,7 +36,8 @@ class ScheduleUpdateCheckResponse(BaseModel):
     last_updated_by: Optional[str] = None
     update_time: Optional[datetime] = None
 
-# 기존 엔드포인트들
+# 정시 대화 스케줄 엔드포인트들
+
 @router.post("/set")
 def set_user_schedule(request: ScheduleRequest, db: Session = Depends(get_db)):
     """사용자의 정시 대화 시간 설정"""
@@ -179,7 +179,7 @@ def remove_user_schedule(user_id_str: str, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"스케줄 제거 실패: {str(e)}")
 
-# 🔥 새로운 가족용 엔드포인트들
+# 가족용 엔드포인트들
 
 @router.get("/user/{user_id_str}")
 def get_user_info(user_id_str: str, db: Session = Depends(get_db)):
@@ -383,7 +383,7 @@ def view_senior_schedule(senior_user_id: str, family_user_id: str, db: Session =
         print(f"❌ 가족 스케줄 조회 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"가족 스케줄 조회 실패: {str(e)}")
 
-# 기존 스케줄러 관련 엔드포인트들
+# 스케줄러 관련 엔드포인트들
 @router.post("/start-scheduler")
 def start_scheduler():
     """스케줄러 시작"""

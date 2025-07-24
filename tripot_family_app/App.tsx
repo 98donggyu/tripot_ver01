@@ -5,6 +5,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import FamilyFeedScreen from './src/screens/FamilyFeedScreen';
 import PhotoDetailScreen from './src/screens/PhotoDetailScreen';
 import PhotoUploadScreen from './src/screens/PhotoUploadScreen';
+import CalendarScreen from './src/screens/CalendarScreen'; // ✨ 캘린더 화면 추가
 import SettingScreen from './src/screens/SettingScreen'; // ✨ 새로 추가
 
 LogBox.ignoreLogs(['ViewPropTypes will be removed']);
@@ -35,11 +36,109 @@ interface Photo {
   comments: Comment[]; 
 }
 
+// ✨ 캘린더 관련 인터페이스 추가
+interface Event {
+  id: string;
+  text: string;
+  createdAt: Date;
+}
+
+interface MarkedDates { 
+  [key: string]: { 
+    marked?: boolean; 
+    dotColor?: string; 
+    events?: Event[];
+  }; 
+}
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('Home');
   const [isLoading, setIsLoading] = useState(false);
   const [familyFeedData, setFamilyFeedData] = useState({});
   const [currentPhotoDetail, setCurrentPhotoDetail] = useState<any>(null);
+  // ✨ 캘린더 상태 추가
+  const [familyMarkedDates, setFamilyMarkedDates] = useState<MarkedDates>({});
+
+  // ✨ 캘린더 데이터 로드 함수 (⚡ URL만 수정됨)
+  const loadSeniorCalendarData = async () => {
+    try {
+      console.log('📅 어르신 캘린더 데이터 로딩 시작...');
+      // ⚡ 기존: /api/v1/schedule/calendar/events/${SENIOR_USER_ID}
+      // ✅ 수정: /api/v1/calendar/events/${SENIOR_USER_ID}
+      const response = await fetch(`${API_BASE_URL}/api/v1/calendar/events/${SENIOR_USER_ID}`);
+      const result = await response.json();
+      
+      if (response.ok && result.calendar_data) {
+        // 백엔드 형식을 프론트엔드 형식으로 변환
+        const convertedData: MarkedDates = {};
+        Object.keys(result.calendar_data).forEach(date => {
+          const dateData = result.calendar_data[date];
+          if (dateData.events) {
+            convertedData[date] = {
+              marked: true,
+              dotColor: '#50cebb',
+              events: dateData.events.map((event: any) => ({
+                id: event.id,
+                text: event.text,
+                createdAt: new Date(event.created_at)
+              }))
+            };
+          }
+        });
+        setFamilyMarkedDates(convertedData);
+        console.log('✅ 캘린더 데이터 로딩 성공:', Object.keys(convertedData).length, '개 날짜');
+      }
+    } catch (error) {
+      console.error('❌ 캘린더 데이터 로드 실패:', error);
+    }
+  };
+
+  // ✨ 캘린더 업데이트 함수 (⚡ URL만 수정됨)
+  const handleFamilyUpdateEvent = async (date: string, events: Event[]) => {
+    try {
+      console.log('📅 캘린더 일정 업데이트 요청:', date, events.length, '개');
+      
+      // ⚡ 기존: /api/v1/schedule/calendar/events/update
+      // ✅ 수정: /api/v1/calendar/events/update
+      const response = await fetch(`${API_BASE_URL}/api/v1/calendar/events/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senior_user_id: SENIOR_USER_ID,
+          family_user_id: USER_ID,
+          date: date,
+          events: events.map(event => ({
+            id: event.id,
+            text: event.text,
+            created_at: event.createdAt
+          }))
+        })
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        // 로컬 상태 업데이트
+        const newMarkedDates = { ...familyMarkedDates };
+        if (!events || events.length === 0) {
+          delete newMarkedDates[date];
+        } else {
+          newMarkedDates[date] = {
+            marked: true,
+            dotColor: '#50cebb',
+            events: events
+          };
+        }
+        setFamilyMarkedDates(newMarkedDates);
+        console.log('✅ 캘린더 일정 업데이트 성공');
+      } else {
+        Alert.alert('오류', '일정 업데이트에 실패했습니다.');
+        console.error('❌ 캘린더 업데이트 API 오류:', result);
+      }
+    } catch (error) {
+      Alert.alert('네트워크 오류', '서버에 연결할 수 없습니다.');
+      console.error('❌ 캘린더 업데이트 네트워크 오류:', error);
+    }
+  };
 
   const fetchFamilyPhotos = async () => {
     setIsLoading(true);
@@ -104,7 +203,11 @@ export default function App() {
     
     if (screen === 'FamilyFeed') {
       fetchFamilyPhotos();
+    } else if (screen === 'Calendar') {
+      // 캘린더 화면 진입 시 데이터 로드
+      loadSeniorCalendarData();
     }
+    
     setCurrentScreen(screen);
   };
 
@@ -138,6 +241,11 @@ export default function App() {
     return () => backHandler.remove();
   }, [currentScreen]);
 
+  // ✨ 앱 시작 시 캘린더 데이터 로드
+  useEffect(() => {
+    loadSeniorCalendarData();
+  }, []);
+
   const renderScreen = () => {
     if (isLoading && !['FamilyFeed', 'Home'].includes(currentScreen)) {
       return (
@@ -153,8 +261,7 @@ export default function App() {
         return (
           <HomeScreen 
             navigation={{ 
-              navigateToFamilyFeed: () => navigate('FamilyFeed'),
-              navigateToSetting: () => navigate('Setting') // ✨ 설정 화면 추가
+              navigate  // ✨ 통일된 navigate 함수 사용
             }} 
             userId={USER_ID}
             apiBaseUrl={API_BASE_URL}
@@ -194,6 +301,16 @@ export default function App() {
             }} 
           />
         );
+
+      // ✨ 캘린더 화면 추가
+      case 'Calendar':
+        return (
+          <CalendarScreen 
+            navigation={{ goBack: () => setCurrentScreen('Home') }} 
+            savedDates={familyMarkedDates} 
+            onUpdateEvent={handleFamilyUpdateEvent} 
+          />
+        );
         
       case 'Setting': // ✨ 새로운 설정 화면
         return (
@@ -209,8 +326,7 @@ export default function App() {
         return (
           <HomeScreen 
             navigation={{ 
-              navigateToFamilyFeed: () => navigate('FamilyFeed'),
-              navigateToSetting: () => navigate('Setting')
+              navigate
             }} 
             userId={USER_ID} 
             apiBaseUrl={API_BASE_URL} 

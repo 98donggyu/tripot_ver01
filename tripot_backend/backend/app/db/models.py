@@ -33,6 +33,11 @@ class User(Base):
         back_populates="family_user"
     )
 
+    calendar_data = Column(Text, nullable=True)                    # 캘린더 일정 JSON 데이터
+    calendar_updated_at = Column(DateTime, nullable=True)          # 캘린더 업데이트 시간
+    calendar_updated_by = Column(String(255), nullable=True)       # 캘린더 수정한 사용자
+    last_calendar_check = Column(DateTime, nullable=True)          # 마지막 캘린더 확인 시간
+
 class FamilyPhoto(Base):
     __tablename__ = "family_photos"
     id = Column(Integer, primary_key=True, index=True)

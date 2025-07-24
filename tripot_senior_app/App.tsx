@@ -34,11 +34,19 @@ interface Photo {
   comments: Comment[]; 
 }
 
+// ✨ 새로운 Event 인터페이스 추가
+interface Event {
+  id: string;
+  text: string;
+  createdAt: Date;
+}
+
+// ✨ MarkedDates 인터페이스 수정
 interface MarkedDates { 
   [key: string]: { 
     marked?: boolean; 
     dotColor?: string; 
-    note?: string; 
+    events?: Event[];  // note에서 events로 변경
   }; 
 }
 
@@ -59,18 +67,158 @@ export default function App() {
     console.log('🔔 RealNotificationManager 초기화 완료');
   }, []);
 
+  // ✨ 서버에서 캘린더 데이터 로드하는 함수 (새 URL 적용)
+  const loadCalendarFromServer = async () => {
+    try {
+      console.log('📅 서버에서 캘린더 데이터 로딩 시작...');
+      
+      // ✅ 새로운 URL: /api/v1/calendar/events/{user_id}
+      const response = await fetch(`${API_BASE_URL}/api/v1/calendar/events/${USER_ID}`);
+      const result = await response.json();
+      
+      if (response.ok && result.calendar_data) {
+        // 서버 형식을 프론트엔드 형식으로 변환
+        const convertedData: MarkedDates = {};
+        Object.keys(result.calendar_data).forEach(date => {
+          const dateData = result.calendar_data[date];
+          if (dateData.events) {
+            convertedData[date] = {
+              marked: true,
+              dotColor: '#50cebb',
+              events: dateData.events.map((event: any) => ({
+                id: event.id,
+                text: event.text,
+                createdAt: new Date(event.created_at)
+              }))
+            };
+          }
+        });
+        
+        // 서버 데이터로 업데이트 (로컬과 병합)
+        setMarkedDates(prevData => {
+          const mergedData = { ...prevData, ...convertedData };
+          saveCalendarData(mergedData);
+          return mergedData;
+        });
+        
+        console.log('✅ 서버에서 캘린더 데이터 로딩 성공:', Object.keys(convertedData).length, '개 날짜');
+      }
+    } catch (error) {
+      console.error('❌ 서버 캘린더 데이터 로딩 실패:', error);
+      // 서버 로딩 실패시 로컬 데이터 사용 계속
+    }
+  };
+
+  // ✨ 캘린더 업데이트 확인 함수 (가족의 수정사항 확인) - 새 URL 적용
+  const checkCalendarUpdates = async () => {
+    try {
+      console.log('🔍 가족의 캘린더 업데이트 확인...');
+      
+      // ✅ 새로운 URL: /api/v1/calendar/check-updates/{user_id}
+      const response = await fetch(`${API_BASE_URL}/api/v1/calendar/check-updates/${USER_ID}`);
+      const result = await response.json();
+      
+      if (response.ok && result.has_update && result.calendar_data) {
+        console.log('📅 가족이 수정한 캘린더 업데이트 감지');
+        
+        // 백엔드 데이터를 프론트엔드 형식으로 변환
+        const convertedData: MarkedDates = {};
+        Object.keys(result.calendar_data).forEach(date => {
+          const dateData = result.calendar_data[date];
+          if (dateData.events) {
+            convertedData[date] = {
+              marked: true,
+              dotColor: '#50cebb',
+              events: dateData.events.map((event: any) => ({
+                id: event.id,
+                text: event.text,
+                createdAt: new Date(event.created_at)
+              }))
+            };
+          }
+        });
+        
+        setMarkedDates(convertedData);
+        saveCalendarData(convertedData);
+        
+        console.log('✅ 가족이 수정한 캘린더 일정 동기화 완료');
+        
+        // 업데이트 알림 (선택사항)
+        Alert.alert('알림', '가족이 일정을 수정했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ 캘린더 업데이트 확인 실패:', error);
+    }
+  };
+
+  // ✨ 캘린더 초기화 함수
   useEffect(() => {
-    const loadCalendarData = async () => {
+    const initializeCalendar = async () => {
       try {
+        // 1. 먼저 로컬 데이터 로드
+        console.log('📅 로컬 캘린더 데이터 로딩...');
         const savedData = await AsyncStorage.getItem('calendarData');
         if (savedData !== null) { 
-          setMarkedDates(JSON.parse(savedData)); 
+          const parsedData = JSON.parse(savedData);
+          
+          // ✨ 기존 데이터 마이그레이션 (note -> events)
+          const migratedData: MarkedDates = {};
+          
+          Object.keys(parsedData).forEach(date => {
+            const dateData = parsedData[date];
+            
+            // 기존 note 형식인 경우 events로 변환
+            if (dateData.note && !dateData.events) {
+              migratedData[date] = {
+                marked: true,
+                dotColor: '#50cebb',
+                events: [{
+                  id: Date.now().toString(),
+                  text: dateData.note,
+                  createdAt: new Date()
+                }]
+              };
+            } 
+            // 이미 새로운 형식인 경우 그대로 사용
+            else if (dateData.events) {
+              // events의 createdAt이 문자열인 경우 Date 객체로 변환
+              const events = dateData.events.map((event: any) => ({
+                ...event,
+                createdAt: typeof event.createdAt === 'string' ? new Date(event.createdAt) : event.createdAt
+              }));
+              
+              migratedData[date] = {
+                ...dateData,
+                events: events
+              };
+            }
+          });
+          
+          setMarkedDates(migratedData);
+          
+          // 마이그레이션된 데이터 저장
+          if (Object.keys(migratedData).length > 0) {
+            saveCalendarData(migratedData);
+          }
         }
+        
+        // 2. 서버에서 최신 데이터 로드 및 병합
+        await loadCalendarFromServer();
+        
+        // 3. 가족의 업데이트 확인
+        await checkCalendarUpdates();
+        
       } catch (e) { 
-        console.error('Failed to load calendar data.', e); 
+        console.error('캘린더 초기화 실패:', e); 
       }
     };
-    loadCalendarData();
+    
+    initializeCalendar();
+  }, []);
+
+  // ✨ 앱 포그라운드 진입 시 업데이트 확인 (스케줄 방식과 동일)
+  useEffect(() => {
+    checkCalendarUpdates();
   }, []);
 
   const saveCalendarData = async (data: MarkedDates) => {
@@ -82,19 +230,57 @@ export default function App() {
     }
   };
 
-  const handleUpdateEvent = (date: string, note: string) => {
+  // ✨ handleUpdateEvent 함수 수정 - 서버 동기화 추가 (새 URL 적용)
+  const handleUpdateEvent = async (date: string, events: Event[]) => {
+    // 1. 로컬 상태 업데이트 (기존 방식)
     const newMarkedDates = { ...markedDates };
-    if (!note.trim()) { 
+    
+    if (!events || events.length === 0) { 
+      // 일정이 없으면 해당 날짜 삭제
       delete newMarkedDates[date]; 
     } else { 
+      // 일정이 있으면 업데이트
       newMarkedDates[date] = { 
         marked: true, 
         dotColor: '#50cebb', 
-        note: note 
+        events: events 
       }; 
     }
+    
     setMarkedDates(newMarkedDates);
     saveCalendarData(newMarkedDates);
+    
+    // 2. 서버 동기화 추가 ✨ (새 URL 적용)
+    try {
+      console.log('📅 서버에 캘린더 동기화 시작:', date, events.length, '개 일정');
+      
+      // ✅ 새로운 URL: /api/v1/calendar/events/update
+      const response = await fetch(`${API_BASE_URL}/api/v1/calendar/events/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senior_user_id: USER_ID,
+          family_user_id: USER_ID, // 어르신이 직접 수정한 경우
+          date: date,
+          events: events.map(event => ({
+            id: event.id,
+            text: event.text,
+            created_at: event.createdAt
+          }))
+        })
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        console.log('✅ 서버 동기화 성공');
+      } else {
+        console.error('❌ 서버 동기화 실패:', result);
+        // 서버 동기화 실패해도 로컬은 유지
+      }
+    } catch (error) {
+      console.error('❌ 서버 동기화 네트워크 오류:', error);
+      // 네트워크 오류여도 로컬은 유지
+    }
   };
 
   const fetchFamilyPhotos = async () => {
@@ -158,6 +344,9 @@ export default function App() {
     
     if (screen === 'FamilyFeed') {
       fetchFamilyPhotos();
+    } else if (screen === 'Calendar') {
+      // ✨ 캘린더 화면 진입 시 업데이트 확인
+      checkCalendarUpdates();
     }
     
     setCurrentScreen(screen);

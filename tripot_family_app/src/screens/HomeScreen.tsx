@@ -13,8 +13,7 @@ interface SeniorReport {
 
 interface HomeScreenProps {
   navigation: {
-    navigateToFamilyFeed: () => void;
-    navigateToSetting: () => void; // ✨ 설정 화면 네비게이션 추가
+    navigate: (screen: string) => void;  // ✨ navigate 함수로 통일
   };
   userId: string;
   apiBaseUrl: string;
@@ -90,7 +89,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation, userId, apiBaseUrl 
             >
               <TouchableOpacity 
                 style={homeStyles.iconMenuItem} 
-                onPress={navigation.navigateToFamilyFeed}
+                onPress={() => navigation.navigate('FamilyFeed')}  // ✨ 통일된 navigate 사용
               >
                 <View style={[homeStyles.iconPlaceholder, homeStyles.familyYardIcon]}>
                   <Text style={homeStyles.iconEmoji}>👨‍👩‍👧‍👦</Text>
@@ -118,20 +117,21 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation, userId, apiBaseUrl 
                 <Text style={homeStyles.iconMenuText}>위치</Text>
               </TouchableOpacity>
               
+              {/* ✨ 캘린더 버튼 - 실제 기능으로 변경 */}
               <TouchableOpacity 
                 style={homeStyles.iconMenuItem} 
-                onPress={() => Alert.alert('알림', '캘린더 기능은 준비 중입니다.')}
+                onPress={() => navigation.navigate('Calendar')}  // ✨ 실제 캘린더 화면으로 이동
               >
-                <View style={homeStyles.iconPlaceholder}>
+                <View style={[homeStyles.iconPlaceholder, homeStyles.calendarIcon]}>
                   <Text style={homeStyles.iconEmoji}>📅</Text>
                 </View>
-                <Text style={homeStyles.iconMenuText}>캘린더</Text>
+                <Text style={[homeStyles.iconMenuText, homeStyles.calendarText]}>캘린더</Text>
               </TouchableOpacity>
               
               {/* ✨ 설정 버튼 - 실제 기능으로 변경 */}
               <TouchableOpacity 
                 style={homeStyles.iconMenuItem} 
-                onPress={navigation.navigateToSetting}
+                onPress={() => navigation.navigate('Setting')}  // ✨ 통일된 navigate 사용
               >
                 <View style={[homeStyles.iconPlaceholder, homeStyles.settingIcon]}>
                   <Text style={homeStyles.iconEmoji}>⚙️</Text>
@@ -256,6 +256,15 @@ const homeStyles = StyleSheet.create({
   familyYardText: { 
     color: '#1976D2', 
     fontWeight: 'bold' 
+  },
+  // ✨ 캘린더 버튼 스타일 추가
+  calendarIcon: { 
+    backgroundColor: '#E8F5E8' 
+  },
+  calendarText: { 
+    color: '#2E7D32', 
+    fontWeight: 'bold',
+    fontSize: 12
   },
   // ✨ 설정 버튼 스타일 추가
   settingIcon: { 
