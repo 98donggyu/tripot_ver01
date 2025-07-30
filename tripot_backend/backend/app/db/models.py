@@ -1,42 +1,33 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Time
+# app/db/models.py
+
+from sqlalchemy import (Column, Integer, String, DateTime, ForeignKey, Text, 
+                        Boolean, Time, Date, JSON)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
-from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     user_id_str = Column(String(255), unique=True, index=True, nullable=False)
+    name = Column(String(100), nullable=True)
     
-    # 🔥 추가: 가족 스케줄 관리용 컬럼들
-    schedule_updated_at = Column(DateTime(timezone=True), nullable=True)  # 스케줄이 마지막으로 업데이트된 시간
-    schedule_updated_by = Column(String(255), nullable=True)              # 스케줄을 마지막으로 업데이트한 사용자 ID
-    last_schedule_check = Column(DateTime(timezone=True), nullable=True)   # 어르신 앱에서 마지막으로 확인한 시간
-    name = Column(String(100), nullable=True)                             # 사용자 이름 (가족 앱에서 표시용)
-    
-    # 관계 설정 (foreign_keys 명시)
+    schedule_updated_at = Column(DateTime, nullable=True)
+    schedule_updated_by = Column(String(255), nullable=True)
+    last_schedule_check = Column(DateTime, nullable=True)
+    calendar_data = Column(Text, nullable=True)
+    calendar_updated_at = Column(DateTime, nullable=True)
+    calendar_updated_by = Column(String(255), nullable=True)
+    last_calendar_check = Column(DateTime, nullable=True)
+
     photos = relationship("FamilyPhoto", back_populates="user")
     comments = relationship("PhotoComment", back_populates="user")
+    schedules = relationship("ConversationSchedule", foreign_keys="[ConversationSchedule.user_id]", back_populates="user")
+    family_set_schedules = relationship("ConversationSchedule", foreign_keys="[ConversationSchedule.family_user_id]", back_populates="family_user")
     
-    # 🔧 수정: foreign_keys 명시해서 충돌 해결
-    schedules = relationship(
-        "ConversationSchedule", 
-        foreign_keys="ConversationSchedule.user_id",
-        back_populates="user"
-    )
-    
-    # 🔧 수정: 가족이 설정한 스케줄들 (foreign_keys 명시)
-    family_set_schedules = relationship(
-        "ConversationSchedule", 
-        foreign_keys="ConversationSchedule.family_user_id",
-        back_populates="family_user"
-    )
-
-    calendar_data = Column(Text, nullable=True)                    # 캘린더 일정 JSON 데이터
-    calendar_updated_at = Column(DateTime, nullable=True)          # 캘린더 업데이트 시간
-    calendar_updated_by = Column(String(255), nullable=True)       # 캘린더 수정한 사용자
-    last_calendar_check = Column(DateTime, nullable=True)          # 마지막 캘린더 확인 시간
+    conversations = relationship("Conversation", back_populates="user_rel")
+    summaries = relationship("Summary", back_populates="user_rel")
+    quiz_results = relationship("QuizResult", back_populates="user_rel")
 
 class FamilyPhoto(Base):
     __tablename__ = "family_photos"
@@ -47,7 +38,7 @@ class FamilyPhoto(Base):
     file_path = Column(String(512), nullable=False)
     file_size = Column(Integer)
     uploaded_by = Column(String(50))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=func.now())
     
     user = relationship("User", back_populates="photos")
     comments = relationship("PhotoComment", back_populates="photo", cascade="all, delete-orphan")
@@ -57,9 +48,9 @@ class PhotoComment(Base):
     id = Column(Integer, primary_key=True, index=True)
     photo_id = Column(Integer, ForeignKey("family_photos.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    author_name = Column(String(100), nullable=False) # 클라이언트에서 받은 작성자 이름
+    author_name = Column(String(100), nullable=False)
     comment_text = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=func.now())
     
     photo = relationship("FamilyPhoto", back_populates="comments")
     user = relationship("User", back_populates="comments")
@@ -67,26 +58,65 @@ class PhotoComment(Base):
 class ConversationSchedule(Base):
     __tablename__ = "conversation_schedules"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # 어르신 ID
-    call_time = Column(Time, nullable=False)  # 예: "09:00:00"
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    call_time = Column(Time, nullable=False)
     is_enabled = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=datetime.utcnow)
+    set_by = Column(String(50), default='user')
+    family_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
-    # 🔥 추가: 가족 관리용 컬럼들
-    set_by = Column(String(50), default='user')                          # 'user' 또는 'family'
-    family_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 설정한 가족 구성원 ID
+    user = relationship("User", foreign_keys=[user_id], back_populates="schedules")
+    family_user = relationship("User", foreign_keys=[family_user_id], back_populates="family_set_schedules")
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    speaker = Column(String(50), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
     
-    # 🔧 수정: foreign_keys 명시해서 관계 설정
-    user = relationship(
-        "User", 
-        foreign_keys=[user_id],
-        back_populates="schedules"
-    )  # 어르신과의 관계
+    user_rel = relationship("User", back_populates="conversations")
+
+class Summary(Base):
+    __tablename__ = "summaries"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    report_date = Column(Date, nullable=False)
+    summary_json = Column(JSON, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
     
-    # 🔧 수정: 설정한 가족 구성원과의 관계 (foreign_keys 명시)
-    family_user = relationship(
-        "User", 
-        foreign_keys=[family_user_id],
-        back_populates="family_set_schedules"
-    )
+    user_rel = relationship("User", back_populates="summaries")
+
+class Quiz(Base):
+    __tablename__ = "quiz"
+    id = Column(Integer, primary_key=True, index=True)
+    topic = Column(String(255), nullable=False)
+    question_text = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+class QuizResult(Base):
+    __tablename__ = "quiz_results"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    quiz_id = Column(Integer, nullable=False)
+    question_text = Column(Text, nullable=False)
+    user_answer = Column(Text)
+    correct_answer = Column(Text, nullable=False)
+    is_correct = Column(Boolean, nullable=False)
+    quiz_session_id = Column(String(255), nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    user_rel = relationship("User", back_populates="quiz_results")
+
+class DailyQA(Base):
+    __tablename__ = "daily_qa"
+    id = Column(Integer, primary_key=True, index=True)
+    daily_date = Column(Date, nullable=False, unique=True)
+    question_text = Column(Text, nullable=False)
+    family_answer_content = Column(Text)
+    elderly_answer_content = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

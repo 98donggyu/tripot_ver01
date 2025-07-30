@@ -1,175 +1,153 @@
-import mysql.connector
-import os
-from datetime import date
+# app/services/report_service.py
 
-def get_mysql_connection():
-    """MySQL 직접 연결"""
-    return mysql.connector.connect(
-        host='db',  # Docker 내부에서는 'db' 사용
-        user=os.getenv('MYSQL_USER'),
-        password=os.getenv('MYSQL_PASSWORD'),
-        database=os.getenv('MYSQL_DATABASE')
-    )
+from sqlalchemy.orm import Session
+from datetime import date, timedelta
+import json
+import pandas as pd
 
-def get_report_by_user_id(db, user_id_str: str):
+from app.db import crud
+
+# --- Public Functions ---
+
+def get_home_screen_report(db: Session, user_id_str: str) -> dict:
     """
-    사용자 ID로 최신 리포트 데이터를 조회하여 HomeScreen에 맞는 형태로 반환합니다.
+    사용자 ID로 최신 리포트를 조회하여 HomeScreen에 맞는 간략한 형태로 반환합니다.
     """
-    try:
-        print(f"✅ 리포트 서비스: {user_id_str}의 최신 데이터를 조회합니다.")
+    latest_summary = crud.get_latest_summary(db, user_id_str)
+    
+    if not latest_summary or not latest_summary.summary_json:
+        print(f"❌ 홈스크린 요약 데이터를 찾을 수 없습니다: {user_id_str}")
+        return _get_default_home_summary_data()
         
-        # MySQL 직접 연결
-        conn = get_mysql_connection()
-        cursor = conn.cursor()
-        
-        # 🔧 가장 최신 summary 조회 (created_at 기준)
-        query = """
-        SELECT s.summary_json, s.report_date, s.created_at
-        FROM summaries s
-        JOIN users u ON s.user_id = u.id
-        WHERE u.user_id_str = %s
-        ORDER BY s.created_at DESC
-        LIMIT 1
-        """
-        
-        cursor.execute(query, (user_id_str,))
-        result = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        
-        if not result:
-            print(f"❌ 요약 데이터를 찾을 수 없습니다: {user_id_str}")
-            return _get_default_report_data()
-        
-        summary_json, report_date, created_at = result
-        print(f"✅ 최신 요약 데이터 조회 성공 - 날짜: {report_date}, 생성시간: {created_at}")
-        
-        # JSON 파싱
-        import json
-        try:
-            summary_data = json.loads(summary_json)
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON 파싱 오류: {e}")
-            return _get_default_report_data()
-        
-        # HomeScreen 형태로 변환
-        return _transform_summary_to_homescreen(summary_data, report_date)
-        
-    except Exception as e:
-        print(f"❌ 리포트 조회 중 오류 발생: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return _get_default_report_data()
+    summary_data = latest_summary.summary_json
+    report_date = latest_summary.report_date
 
-def _transform_summary_to_homescreen(summary_data, report_date):
-    """summary_json을 HomeScreen이 기대하는 형태로 변환"""
-    try:
-        print(f"🔄 리포트 데이터 변환 중... 날짜: {report_date}")
-        
-        # 기본값 설정
-        name = "라기선님"
-        mood = "보통"
-        condition = "특별한 언급 없음"
-        last_activity = "일상 생활"
-        needs = "특별한 요청 없음"
-        
-        # 🔧 감정 상태 추출
-        emotion_status = summary_data.get("감정_신체_상태", {})
-        if emotion_status:
-            emotion = emotion_status.get("전반적_감정", "")
-            print(f"📊 감정 상태: {emotion}")
-            
-            if "긍정" in emotion or "좋" in emotion:
-                mood = "좋음 😊"
-            elif "부정" in emotion or "우울" in emotion or "슬픔" in emotion:
-                mood = "우울함 😔"
-            else:
-                mood = "보통 😐"
-            
-            # 🔧 건강 상태
-            health_mentions = emotion_status.get("건강_언급", [])
-            if health_mentions and len(health_mentions) > 0:
-                condition = ", ".join(health_mentions[:2])  # 최대 2개만
-                print(f"🏥 건강 언급: {condition}")
-        
-        # 🔧 최근 활동 (일일 대화 요약에서 추출)
-        daily_summary = summary_data.get("일일_대화_요약", {})
-        if daily_summary:
-            summary_text = daily_summary.get("요약", "")
-            keywords = daily_summary.get("강조 키워드", [])
-            
-            if summary_text:
-                # 요약에서 주요 활동 추출 (첫 문장)
-                first_sentence = summary_text.split('.')[0]
-                if len(first_sentence) > 0:
-                    last_activity = first_sentence[:30] + "..."
-                    print(f"📝 최근 활동: {last_activity}")
-            elif keywords and len(keywords) > 0:
-                last_activity = f"{keywords[0]} 관련 대화"
-        
-        # 🔧 요청 물품 추출
-        requested_items = summary_data.get("요청_물품", [])
-        if requested_items and len(requested_items) > 0:
-            item = requested_items[0].get("물품", "")
-            if item:
-                needs = item
-                print(f"🛒 요청 물품: {needs}")
-        
-        # 기본 통계 (고정값 - 나중에 실제 데이터로 교체 가능)
-        contact_count = 12
-        visit_count = 1
-        question_count = 3
-        
-        # 랭킹 데이터 (고정값)
-        ranking_data = [
-            {"name": "첫째 아들", "score": 120},
-            {"name": "막내 딸", "score": 95},
-            {"name": "둘째 아들", "score": 80}
-        ]
-        
-        result = {
-            "name": name,
-            "report_date": str(report_date),  # 리포트 날짜 추가
-            "status": {
-                "mood": mood,
-                "condition": condition,
-                "last_activity": last_activity,
-                "needs": needs
-            },
-            "stats": {
-                "contact": contact_count,
-                "visit": visit_count,
-                "question_answered": question_count
-            },
-            "ranking": ranking_data
-        }
-        
-        print(f"✅ HomeScreen 데이터 변환 완료")
-        return result
-        
-    except Exception as e:
-        print(f"❌ 데이터 변환 중 오류: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return _get_default_report_data()
+    return _transform_summary_to_homescreen(summary_data, report_date)
 
-def _get_default_report_data():
-    """데이터가 없을 때 반환할 기본 리포트 데이터"""
+def get_full_report(db: Session, user_id_str: str) -> dict:
+    """
+    최신 리포트와 인지 퀴즈 결과를 종합하여 ReportScreen에 맞는 상세 형태로 반환합니다.
+    """
+    # 1. 최신 대화 요약 리포트 가져오기
+    latest_summary = crud.get_latest_summary(db, user_id_str)
+    
+    summary_data = {}
+    report_date = date.today() # 기본값
+
+    if not latest_summary or not latest_summary.summary_json:
+        print(f"❌ 상세 리포트의 대화 요약 데이터를 찾을 수 없습니다: {user_id_str}")
+        summary_data = _get_default_full_report_data() # 대화 요약 부분만 기본값으로 채움
+    else:
+        summary_data = latest_summary.summary_json
+        report_date = latest_summary.report_date
+
+    # 2. '오늘의 질문' 내용 가져오기
+    daily_qa = crud.get_daily_question(db, report_date)
+    if daily_qa:
+        # summary_data에 '오늘의 질문/답변' 필드 추가 또는 업데이트
+        if "일일_대화_요약" not in summary_data: summary_data["일일_대화_요약"] = {}
+        if "매일_묻는_질문_응답" not in summary_data["일일_대화_요약"]: summary_data["일일_대화_요약"]["매일_묻는_질문_응답"] = {}
+        
+        summary_data["일일_대화_요약"]["매일_묻는_질문_응답"]["오늘_질문"] = daily_qa.question_text
+        summary_data["일일_대화_요약"]["매일_묻는_질문_응답"]["오늘_답변"] = daily_qa.elderly_answer_content or "답변 없음"
+
+    # 3. 최근 7일간의 인지 퀴즈 결과 데이터 가져오고 가공하기
+    cognitive_data = _process_cognitive_data(db, user_id_str, days_back=7)
+    
+    # 4. 최종 리포트 조립
+    summary_data["리포트_날짜"] = str(report_date)
+    summary_data["인지상태_평가"] = cognitive_data
+    
+    return summary_data
+
+# --- Helper Functions (Private) ---
+
+def _process_cognitive_data(db: Session, user_id_str: str, days_back: int) -> dict:
+    """DB에서 퀴즈 결과를 가져와 통계를 계산하고 가공합니다."""
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days_back)
+    
+    # crud를 통해 퀴즈 결과와 주제를 함께 가져옴
+    results = crud.fetch_quiz_results_with_topic(db, user_id_str, start_date, end_date)
+    
+    if not results:
+        return _get_default_cognitive_report_data()
+
+    df_results = pd.DataFrame(results, columns=['is_correct', 'topic'])
+    
+    total_quizzes_count = len(df_results)
+    total_correct_count = int(df_results['is_correct'].sum())
+
+    topic_summary_list = []
+    if not df_results.empty:
+        topic_grouped = df_results.groupby('topic').agg(
+            total_for_topic=('is_correct', 'size'),
+            correct_for_topic=('is_correct', 'sum')
+        ).reset_index()
+        
+        topic_grouped['incorrect_for_topic'] = topic_grouped['total_for_topic'] - topic_grouped['correct_for_topic']
+        
+        # topic, total, incorrect 키를 가진 딕셔너리 리스트로 변환
+        topic_summary_list = topic_grouped[['topic', 'total_for_topic', 'incorrect_for_topic']].rename(
+            columns={'total_for_topic': 'total', 'incorrect_for_topic': 'incorrect'}
+        ).to_dict(orient='records')
+
     return {
-        "name": "라기선님",
-        "status": {
-            "mood": "데이터 없음",
-            "condition": "정보 없음", 
-            "last_activity": "정보 없음",
-            "needs": "정보 없음"
-        },
-        "stats": {
-            "contact": 0,
-            "visit": 0,
-            "question_answered": 0
-        },
-        "ranking": [
-            {"name": "데이터 없음", "score": 0}
-        ]
+        "total_quizzes_count": total_quizzes_count,
+        "total_correct_count": total_correct_count,
+        "topic_summary": topic_summary_list
     }
+
+def _transform_summary_to_homescreen(summary_data: dict, report_date: date) -> dict:
+    """AI가 생성한 summary_json을 HomeScreen이 필요로 하는 형태로 변환합니다."""
+    # (이전 코드의 _transform_summary_to_homescreen 함수 내용과 거의 동일)
+    try:
+        emotion_status = summary_data.get("감정_신체_상태", {})
+        daily_summary = summary_data.get("일일_대화_요약", {})
+        requested_items = summary_data.get("요청_물품", [])
+        
+        mood = emotion_status.get("전반적_감정", "보통 😐")
+        condition = ", ".join(emotion_status.get("건강_언급", ["특별한 언급 없음"]))
+        last_activity = daily_summary.get("요약", "일상 대화")
+        needs = requested_items[0].get("물품", "특별한 요청 없음") if requested_items else "특별한 요청 없음"
+
+        return {
+            "name": summary_data.get("어르신_ID", "어르신"),
+            "report_date": str(report_date),
+            "status": { "mood": mood, "condition": condition, "last_activity": last_activity, "needs": needs },
+            # stats와 ranking은 현재 DB에 없어 임시 고정값 사용
+            "stats": { "contact": 12, "visit": 1, "Youtubeed": 3 },
+            "ranking": [
+                {"name": "첫째 아들", "score": 120},
+                {"name": "막내 딸", "score": 95},
+                {"name": "둘째 아들", "score": 80}
+            ]
+        }
+    except Exception as e:
+        print(f"❌ 홈스크린 데이터 변환 중 오류: {e}")
+        return _get_default_home_summary_data()
+
+# --- Default Data Functions (Private) ---
+
+def _get_default_home_summary_data() -> dict:
+    """데이터가 없을 때 반환할 HomeScreen용 기본 리포트"""
+    # (이전 코드의 _get_default_report_data 함수 내용과 동일)
+    return {
+        "name": "어르신", "report_date": str(date.today()),
+        "status": {"mood": "정보 없음", "condition": "정보 없음", "last_activity": "정보 없음", "needs": "정보 없음"},
+        "stats": {"contact": 0, "visit": 0, "Youtubeed": 0},
+        "ranking": []
+    }
+
+def _get_default_full_report_data() -> dict:
+    """데이터가 없을 때 반환할 전체 리포트용 기본 구조"""
+    return {
+        "어르신_ID": "정보 없음", "요청_물품": [], "리포트_날짜": str(date.today()),
+        "키워드_분석": [], "감정_신체_상태": {"건강_언급": [], "전반적_감정": "정보 없음"},
+        "식사_상태_추정": [], "일일_대화_요약": {"요약": "대화 요약 정보가 없습니다.", "강조_키워드": []},
+        "자녀를_위한_추천_대화_주제": []
+    }
+
+def _get_default_cognitive_report_data() -> dict:
+    """인지 퀴즈 결과가 없을 때 반환할 기본 구조"""
+    return { "total_quizzes_count": 0, "total_correct_count": 0, "topic_summary": [] }

@@ -10,16 +10,47 @@ const API_BASE_URL = 'http://192.168.101.67:8080/api/v1';
  */
 export const getSeniorReport = async (seniorUserId: string) => {
     try {
-        // ❗️ 중요: 백엔드에 해당 API 엔드포인트가 구현되어 있어야 합니다.
-        // GET /api/v1/family/reports/{seniorUserId}
+        console.log(`API 호출: ${API_BASE_URL}/family/reports/${seniorUserId}`);
         const response = await axios.get(`${API_BASE_URL}/family/reports/${seniorUserId}`);
+        console.log('API 응답 데이터:', response.data);
         return response.data;
-    } catch (error) {
+    } catch (error: any) {
         console.error('리포트를 불러오는 데 실패했습니다:', error);
-        // 실제 앱에서는 더 나은 오류 처리가 필요합니다.
+        if (error.response) {
+            console.error('응답 데이터:', error.response.data);
+            console.error('응답 상태:', error.response.status);
+            console.error('응답 헤더:', error.response.headers);
+        } else if (error.request) {
+            console.error('요청이 이루어졌지만 응답을 받지 못했습니다:', error.request);
+        } else {
+            console.error('요청 설정 중 오류 발생:', error.message);
+        }
         throw error;
     }
 };
 
-// 다른 API 함수들도 이곳에 추가할 수 있습니다.
-// 예: export const uploadPhoto = async (photoData) => { ... };
+// 🔥🔥🔥 ReportScreen을 위한 새로운 함수 추가 (상세 데이터 반환) 🔥🔥🔥
+/**
+ * 특정 어르신의 상세 리포트 데이터를 가져오는 함수 (ReportScreen용)
+ * @param seniorUserId - 조회할 어르신의 고유 ID (user_id_str)
+ */
+export const getDetailedSeniorReport = async (seniorUserId: string) => {
+    try {
+        console.log(`API 호출 (상세 리포트): ${API_BASE_URL}/family/reports/detail/${seniorUserId}`);
+        const response = await axios.get(`${API_BASE_URL}/family/reports/detail/${seniorUserId}`);
+        console.log('API 응답 데이터 (상세 리포트):', response.data);
+        return response.data;
+    } catch (error: any) {
+        console.error('상세 리포트 불러오는 데 실패했습니다:', error);
+        if (error.response) {
+            console.error('응답 데이터:', error.response.data);
+            console.error('응답 상태:', error.response.status);
+            console.error('응답 헤더:', error.response.headers);
+        } else if (error.request) {
+            console.error('요청이 이루어졌지만 응답을 받지 못했습니다:', error.request);
+        } else {
+            console.error('요청 설정 중 오류 발생:', error.message);
+        }
+        throw error;
+    }
+};

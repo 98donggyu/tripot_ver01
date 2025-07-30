@@ -1,3 +1,5 @@
+// src/screens/SettingScreen.tsx
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -11,6 +13,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NotificationManager from '../utils/RealNotificationManager';
+
+// ... (Interface 정의 등 다른 부분은 변경 없음) ...
 
 interface Schedule {
   id: number;
@@ -37,14 +41,13 @@ const SettingScreen: React.FC<SettingScreenProps> = ({ navigation, userId, apiBa
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // 다양한 시간 옵션들 (복수 선택 가능)
   const timeOptions: TimeOption[] = [
     { time: '07:00', label: '오전 7시 (아침 일찍)' },
     { time: '08:00', label: '오전 8시 (아침)' },
     { time: '09:00', label: '오전 9시' },
     { time: '10:00', label: '오전 10시' },
     { time: '11:00', label: '오전 11시' },
-    { time: '12:40', label: '오후 12시 (점심)' },
+    { time: '12:00', label: '오후 12시 (점심)' },
     { time: '13:00', label: '오후 1시' },
     { time: '14:00', label: '오후 2시' },
     { time: '15:00', label: '오후 3시' },
@@ -58,7 +61,6 @@ const SettingScreen: React.FC<SettingScreenProps> = ({ navigation, userId, apiBa
 
   useEffect(() => {
     loadUserSchedules();
-    // 알림 권한 요청
     requestNotificationPermissions();
   }, []);
 
@@ -291,11 +293,12 @@ const SettingScreen: React.FC<SettingScreenProps> = ({ navigation, userId, apiBa
   };
 
   // 모든 스케줄 제거
-  const removeAllSchedules = async (): Promise<void> => {
+   const removeAllSchedules = async (): Promise<void> => {
     try {
       console.log('🗑️ 모든 스케줄 제거');
       
-      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/${userId}`, {
+      // ◀️ FIX: URL을 백엔드 엔드포인트와 일치시킵니다.
+      const response = await fetch(`${apiBaseUrl}/api/v1/schedule/remove-all/${userId}`, {
         method: 'DELETE'
       });
 
@@ -306,7 +309,6 @@ const SettingScreen: React.FC<SettingScreenProps> = ({ navigation, userId, apiBa
         setSchedules([]);
         await AsyncStorage.removeItem('userSchedules');
         
-        // 푸시 알림도 모두 취소
         NotificationManager.cancelAllNotifications();
         console.log('✅ 푸시 알림도 모두 취소됨');
         

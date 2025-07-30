@@ -1,164 +1,136 @@
+# app/api/v1/endpoints/senior.py
+
 import json
-import asyncio
 import os
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import asyncio
+import base64
+import tempfile
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.orm import Session
 
-# DB 세션을 직접 생성하기 위해 SessionLocal을 가져옵니다.
-from app.services import ai_service, vector_db, conversation_service
+# --- 통합된 모듈 임포트 ---
+from app.services import ai_service, vector_db_service
+from app.services.quiz_manager import QuizManager
+from app.services.connection_manager import manager # 분리된 매니저 사용
+from app.db import crud
+from app.core.config import settings
 from app.db.database import SessionLocal
-
-print("🔥🔥🔥 SENIOR.PY 파일이 로드되었습니다! 🔥🔥🔥")
 
 router = APIRouter()
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: dict[str, WebSocket] = {}
-    async def connect(self, websocket: WebSocket, user_id: str):
-        await websocket.accept()
-        self.active_connections[user_id] = websocket
-    def disconnect(self, user_id: str):
-        if user_id in self.active_connections:
-            del self.active_connections[user_id]
-    async def send_json(self, data: dict, user_id: str):
-        if user_id in self.active_connections:
-            websocket = self.active_connections[user_id]
-            await websocket.send_text(json.dumps(data, ensure_ascii=False))
+# --- 각 사용자 세션을 관리하는 딕셔너리 ---
+# (퀴즈 관리자 인스턴스와 대화 로그를 포함)
+user_sessions = {}
 
-manager = ConnectionManager()
-session_conversations = {}
+# --- 서버 시작 시 퀴즈 데이터와 프롬프트 경로 미리 준비 ---
+ALL_QUIZZES_DF = crud.fetch_quizzes_as_df()
+PROMPTS_FILE_PATH = os.path.join(settings.PROMPTS_DIR, 'quiz_prompts.json')
 
-def _load_start_question():
-    """프롬프트 파일을 로드하여 시작 질문을 반환합니다."""
-    possible_paths = [
-        '/backend/prompts/talk_prompts.json',
-        './prompts/talk_prompts.json',
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', 'prompts', 'talk_prompts.json'),
-        '/backend/prompts/talk_prompt.json',
-    ]
+# --- 웹소켓 엔드포인트 ---
 
-    for path in possible_paths:
-        try:
-            print(f"🔍 프롬프트 파일 시도: {path}")
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                start_question = data.get('main_chat_prompt', {}).get('start_question', "안녕하세요!")
-                print(f"✅ 프롬프트 파일 로드 성공: {path}")
-                print(f"✅ 시작 질문: {start_question}")
-                return start_question
-        except FileNotFoundError:
-            print(f"❌ 파일 없음: {path}")
-            continue
-        except Exception as e:
-            print(f"❌ 파일 로드 실패 ({path}): {str(e)}")
-            continue
-
-    print("❌ 모든 경로에서 프롬프트 파일 로드 실패, 기본값 사용")
-    return "안녕하세요! 오늘은 어떤 하루를 보내고 계신가요?"
-
-@router.websocket("/senior/ws/{user_id}")
+@router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    print(f"🔗 WebSocket 연결 요청 받음: {user_id}")
+    await manager.connect(websocket, user_id)
+    
+    # --- 1. 사용자 세션 초기화 ---
+    user_sessions[user_id] = {
+        "quiz_manager": QuizManager(ALL_QUIZZES_DF, PROMPTS_FILE_PATH, ai_service),
+        "conversation_log": []
+    }
+    print(f"✅ 클라이언트 [{user_id}] 연결됨. 세션 초기화 완료.")
 
+    # --- 2. 시작 메시지 전송 ---
+    # TODO: 시작 메시지를 talk_prompts.json에서 동적으로 불러오도록 개선
+    start_question = "안녕하세요! 오늘은 어떤 재미있는 이야기를 나눠볼까요?"
+    await manager.send_json({"type": "ai_message", "content": start_question}, user_id)
+    
+    # 세션 로그에 시작 메시지 기록
+    user_sessions[user_id]["conversation_log"].append(f"AI: {start_question}")
+    
+    # DB 세션 생성
+    db: Session = SessionLocal()
     try:
-        await manager.connect(websocket, user_id)
-        session_conversations[user_id] = []
-        print(f"✅ 클라이언트 [{user_id}] 연결됨.")
-
-        # 프롬프트 파일에서 시작 질문 로드
-        start_question = _load_start_question()
-        await manager.send_json({"type": "ai_message", "content": start_question}, user_id)
-        session_conversations[user_id].append(f"AI: {start_question}")
-
+        # --- 3. 메시지 수신 및 처리 루프 ---
         while True:
-            message = await websocket.receive_text()
+            audio_base64 = await websocket.receive_text()
             
-            # ✨ 정시 대화 응답 처리
-            if message.startswith('{"type":"scheduled_call_response"'):
-                response_data = json.loads(message)
-                action = response_data.get("action")
-                
-                if action == "start_now":
-                    print(f"📞 {user_id} 정시 대화 즉시 시작")
-                    scheduled_question = "안녕하세요! 정시 대화 시간이에요. 오늘 하루는 어떻게 보내셨나요?"
-                    await manager.send_json({"type": "ai_message", "content": scheduled_question}, user_id)
-                    session_conversations[user_id].append(f"AI: {scheduled_question}")
-                elif action == "snooze":
-                    print(f"⏰ {user_id} 대화 10분 연기")
-                    # 10분 후 재알림 로직 (필요시 구현)
-                    await manager.send_json({"type": "system_message", "content": "10분 후에 다시 알려드릴게요."}, user_id)
-                elif action == "skip":
-                    print(f"⏭️ {user_id} 오늘 대화 건너뛰기")
-                    await manager.send_json({"type": "system_message", "content": "오늘은 대화를 건너뛰겠습니다. 내일 또 뵐게요!"}, user_id)
+            # 3-1. STT (Speech-to-Text)
+            user_message = await _audio_to_text(audio_base64)
+            if not user_message:
+                await manager.send_json({"type": "ai_message", "content": "음, 잘 못 들었어요. 다시 말씀해주시겠어요?"}, user_id)
                 continue
             
-            # 기존 오디오 처리
-            audio_base64 = message
-            print(f"🎵 오디오 데이터 받음: {len(audio_base64)} bytes")
+            # 사용자 메시지 화면에 표시
+            await manager.send_json({"type": "user_message", "content": user_message}, user_id)
 
-            try:
-                user_message, ai_response = await ai_service.process_user_audio(user_id, audio_base64)
+            # 3-2. 비즈니스 로직 처리 (퀴즈/일반대화)
+            quiz_manager = user_sessions[user_id]["quiz_manager"]
+            response_text = ""
 
-                if user_message:
-                    await manager.send_json({"type": "user_message", "content": user_message}, user_id)
-                    await manager.send_json({"type": "ai_message", "content": ai_response}, user_id)
-
-                    session_conversations[user_id].append(f"사용자: {user_message}")
-                    session_conversations[user_id].append(f"AI: {ai_response}")
-
-                    # DB 저장
-                    try:
-                        db: Session = SessionLocal()
-                        try:
-                            user = conversation_service.get_or_create_user(db, user_id)
-                            conversation_service.save_conversation(db, user, user_message, ai_response)
-                            print(f"✅ DB 저장 완료: {user_id} - {user_message[:20]}...")
-                        finally:
-                            db.close()
-                    except Exception as db_error:
-                        print(f"❌ DB 저장 실패 (무시): {str(db_error)}")
+            if quiz_manager.is_active():
+                # 퀴즈 진행 중일 때: 사용자 입력을 정답으로 간주
+                response_text, result_to_save = await quiz_manager.process_answer(user_message)
+                if result_to_save:
+                    crud.save_quiz_result(db, result_to_save)
+            else:
+                # 일반 대화 상태일 때: 명령어 확인 후 처리
+                command = await ai_service.check_quiz_command(user_message)
+                if command:
+                    if command["action"] == "start_quiz":
+                        start_msg, first_question = quiz_manager.start_quiz(user_id)
+                        response_text = f"{start_msg}\n{first_question}" if first_question else start_msg
+                    elif command["action"] == "stop_quiz":
+                        response_text = quiz_manager.stop_quiz()
                 else:
-                    await manager.send_json({"type": "ai_message", "content": ai_response}, user_id)
-
-            except Exception as e:
-                print(f"❌ AI 서비스 오류: {str(e)}")
-                error_response = "죄송합니다. 잠시 문제가 있었어요. 다시 말씀해 주세요."
-                await manager.send_json({"type": "ai_message", "content": error_response}, user_id)
+                    # 일반 대화 처리
+                    _, response_text = await ai_service.process_user_audio(user_id, audio_base64)
+            
+            # 3-3. 최종 응답 전송 및 저장 (통합된 부분)
+            await manager.send_json({"type": "ai_message", "content": response_text}, user_id)
+            
+            # 모든 대화를 conversations 테이블에 저장
+            crud.save_conversation(db, user_id, user_message, response_text)
+            
+            # 모든 대화를 Pinecone 요약용 세션 로그에 추가
+            user_sessions[user_id]["conversation_log"].append(f"사용자: {user_message}")
+            user_sessions[user_id]["conversation_log"].append(f"AI: {response_text}")
 
     except WebSocketDisconnect:
         print(f"🔌 클라이언트 [{user_id}] 연결이 끊어졌습니다.")
     except Exception as e:
-        print(f"❌ WebSocket 오류: {str(e)}")
+        print(f"❌ WebSocket 처리 중 오류 발생: {e}")
         import traceback
-        print(f"❌ 상세 오류: {traceback.format_exc()}")
+        traceback.print_exc()
     finally:
-        if user_id in session_conversations:
-            current_session_log = session_conversations.pop(user_id)
-            try:
-                await vector_db.create_memory_for_pinecone(user_id, current_session_log)
-                print(f"✅ 벡터 DB 저장 완료: {user_id} - {len(current_session_log)}개 대화")
-            except Exception as vector_error:
-                print(f"❌ 벡터 DB 저장 실패 (무시): {str(vector_error)}")
-
+        # --- 4. 연결 종료 시 후처리 ---
+        if user_id in user_sessions:
+            session_log = user_sessions[user_id].get("conversation_log", [])
+            if session_log:
+                # 대화 기록을 Pinecone에 기억으로 저장
+                await vector_db_service.create_memory_for_pinecone(user_id, session_log)
+            del user_sessions[user_id]
+        
         manager.disconnect(user_id)
-        print(f"⏹️ [{user_id}] 클라이언트와의 모든 처리가 완료되었습니다.")
+        db.close()
+        print(f"⏹️ [{user_id}] 클라이언트 세션 정리 완료.")
 
-# ✨ 정시 대화 트리거 엔드포인트 (테스트용)
-@router.post("/trigger-call/{user_id}")
-async def trigger_scheduled_call(user_id: str):
-    """수동으로 정시 대화 트리거 (테스트용)"""
+async def _audio_to_text(audio_base64: str) -> str | None:
+    """오디오 데이터를 텍스트로 변환하는 헬퍼 함수"""
+    temp_audio_path = None
     try:
-        if user_id in manager.active_connections:
-            await manager.send_json({
-                "type": "scheduled_call",
-                "content": "정시 대화 시간입니다! 대화를 시작하시겠어요?",
-                "timestamp": datetime.now().isoformat()
-            }, user_id)
-            return {"status": "success", "message": f"{user_id}에게 정시 대화 알림을 전송했습니다"}
-        else:
-            return {"status": "info", "message": f"{user_id} 사용자가 현재 접속하지 않았습니다"}
-            
+        audio_data = base64.b64decode(audio_base64)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            temp_audio.write(audio_data)
+            temp_audio_path = temp_audio.name
+        
+        user_message = await ai_service.get_transcript_from_audio(temp_audio_path)
+        
+        if not user_message.strip() or "시청해주셔서 감사합니다" in user_message:
+            return None
+        return user_message
     except Exception as e:
-        print(f"❌ 정시 대화 트리거 실패: {str(e)}")
-        return {"status": "error", "message": f"트리거 실패: {str(e)}"}
+        print(f"STT 처리 오류: {e}")
+        return None
+    finally:
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            os.unlink(temp_audio_path)

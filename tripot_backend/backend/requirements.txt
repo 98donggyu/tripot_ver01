@@ -17,3 +17,4 @@ httpcore==1.0.5
 websockets
 schedule==1.2.0
 pytz==2023.3
+pandas

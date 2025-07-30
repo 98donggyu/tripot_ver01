@@ -1,0 +1,26 @@
+{
+    "quiz_start_prompts": [
+        "할머니! 신나는 퀴즈를 총 {num_quizzes}문제 준비했어요. 지금 바로 시작할까요?",
+        "좋아요! 총 {num_quizzes}개의 퀴즈를 풀어볼까요?",
+        "자, 할머니를 위한 맞춤 퀴즈 {num_quizzes}문제! 풀어볼 준비 되셨나요?"
+    ],
+    "quiz_question_template": "{question_text}",
+    "quiz_correct_feedback": [
+        "정답이에요! 정말 대단하시네요!",
+        "정답! 할머니 최고!",
+        "맞았어요! 역시 할머니는 척척박사!",
+        "딩동댕! 아주 잘하셨어요!"
+    ],
+    "quiz_incorrect_feedback": [
+        "아쉽지만 정답은 아니에요. 정답은 {correct_answer}였답니다. 괜찮아요, 다음 문제에서 더 잘할 수 있을 거예요!",
+        "음, 다시 한번 생각해볼까요? 정답은 {correct_answer}였어요. 그래도 괜찮아요!",
+        "조금 틀렸지만 괜찮아요! 정답은 {correct_answer}였답니다. 다음 문제를 풀어볼까요?"
+    ],
+    "quiz_continue_prompt": [
+        "다음 문제 나갑니다!",
+        "다음 퀴즈에요!",
+        "자, 이어서 다음 문제!"
+    ],
+    "quiz_end_summary": "퀴즈가 모두 종료되었습니다! 총 {total_quizzes}문제 중에 {correct_count}문제를 맞히셨어요. 정말 잘하셨어요!",
+    "quiz_end_no_correct": "퀴즈가 모두 끝났어요. 다음에 더 잘할 수 있을 거예요! 화이팅!"
+}
